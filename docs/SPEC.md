@@ -1,6 +1,7 @@
 # SPEC — lang_ai_agent v0.1
 
 작성: 2026-09-04 · 상태: 확정 (변경 시 이 문서를 먼저 수정)
+개정: 2026-09-04 — PyPI 배포를 v0.1 목표로 추가, npm(JS/TS 클라이언트 SDK) 배포는 착수 보류(T12)
 
 ## 1. 배경
 
@@ -19,6 +20,7 @@ LangChain/LangGraph 에이전트 백엔드는 현재 글로벌 원격 계약 시
 4. **도구 계층**: 조회형(safe) / 부작용형(effect, requires_approval) 분류 규약. v0.1 도구는 retail-mcp 스키마를 미러한 페이크 3종(`check_stockout`, `get_reorder_suggestions`, `send_reorder_email`) + MCP 로더(`mcp_servers.json` → `MultiServerMCPClient`)로 실 MCP 서버 연결 경로.
 5. **결정론 테스트**: 실 LLM 없이 ScriptedChatModel로 그래프 궤적 전체를 검증 (`docs/TESTING.md`).
 6. **관측성 최소셋**: 토큰·비용 집계(스레드별), 구조화 로그, LangSmith 트레이싱 옵션(env로 on/off).
+7. **PyPI 배포**: `pyproject.toml` 배포 메타데이터 정비 → TestPyPI 검증 → 정식 PyPI에 설치 가능한 패키지로 배포 (DESIGN §10).
 
 ## 3. v0.1 비목표
 
@@ -28,6 +30,7 @@ LangChain/LangGraph 에이전트 백엔드는 현재 글로벌 원격 계약 시
 - RAG/벡터 검색, 장기 메모리 — 별도 판단
 - 멀티테넌시·과금 — 계약 납품 시 클라이언트별 포크 전략으로 대응 (미결 §8)
 - 웹 프론트엔드 — API + `scripts/` 데모 클라이언트까지만
+- **npm(JS/TS 클라이언트 SDK) 배포** — 별도 신규 패키지가 필요한 작업이라 착수 보류. PyPI 배포(목표 7) 안정화 후 재논의 (`docs/TASKS.md` "보류" 섹션)
 
 ## 4. 대표 시나리오
 
@@ -43,12 +46,13 @@ LangChain/LangGraph 에이전트 백엔드는 현재 글로벌 원격 계약 시
 - `make check` 통과, `src/lang_ai_agent/core/` 커버리지 90% 이상.
 - 수동 스모크: 실 Claude 모델 1회 + (옵션) 실 retail-mcp stdio 연결로 시나리오 1 재현.
 - 포트폴리오 준비물: 영어 README 초안 + 데모 스크립트 (T11).
+- TestPyPI 배포 성공 + 정식 PyPI 배포 1회 이상 완료 (T13~T14).
 
 ## 6. 로드맵
 
 | 버전 | 내용 | 전제 |
 |---|---|---|
-| v0.1 | 단일 에이전트 그래프 + 승인 게이트 + FastAPI SSE + 결정론 테스트 + 공개 준비 | — |
+| v0.1 | 단일 에이전트 그래프 + 승인 게이트 + FastAPI SSE + 결정론 테스트 + PyPI 배포 + 공개 준비 | — |
 | v0.2 | PostgresSaver, GitHub Actions CI(`make check`), supervisor 멀티에이전트, 실 retail-mcp 상시 연결 | v0.1 공개 |
 | v0.3 | 평가 하니스(골든 궤적 회귀 + eval셋), 비용 리포트, Docker 배포 템플릿 | — |
 | v0.4 | MCP 코어 편입 판단 — 코어의 버티컬 에이전트들을 이 런타임 위로 이관 | 코어 MVP 검증 |
@@ -57,6 +61,7 @@ LangChain/LangGraph 에이전트 백엔드는 현재 글로벌 원격 계약 시
 
 - README는 영어로 전환(내부 docs는 한국어 유지), 아키텍처 다이어그램 1장, 60초 데모(터미널 녹화) 1개.
 - "왜 이렇게 설계했나" 섹션: 승인 게이트·결정론 테스트·상태 비대화 방지 — 계약 인터뷰에서 그대로 말할 수 있는 근거.
+- README에 PyPI 배지 + `pip install`/`uv add` 설치 안내 포함 (T15).
 
 ## 8. 미결 사항
 
