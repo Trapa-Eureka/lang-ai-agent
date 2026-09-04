@@ -54,38 +54,43 @@ def _compile_counter_graph(checkpointer: BaseCheckpointSaver[str]):
     return builder.compile(checkpointer=checkpointer)
 
 
-def test_sqlite_checkpointer_survives_a_simulated_restart(tmp_path: Path) -> None:
-    """T4 completion criterion: temp-file SqliteSaver save/restore."""
+async def test_sqlite_checkpointer_survives_a_simulated_restart(tmp_path: Path) -> None:
+    """T4 completion criterion: temp-file AsyncSqliteSaver save/restore.
+
+    Async, matching how core/graph.py (T5) actually drives the graph — the
+    sync SqliteSaver raises NotImplementedError under ainvoke/aget_state.
+    """
     db_path = tmp_path / "checkpoints.db"
     config = thread_config("thread-1")
 
-    with build_sqlite_checkpointer(str(db_path)) as checkpointer:
+    async with build_sqlite_checkpointer(str(db_path)) as checkpointer:
         graph = _compile_counter_graph(checkpointer)
-        result = graph.invoke({"count": 0}, config)
+        result = await graph.ainvoke({"count": 0}, config)
         assert result == {"count": 1}
-    # the `with` block has exited — this stands in for the server process
-    # dying and being restarted, per docs/DESIGN.md's restart-resilience goal.
+    # the `async with` block has exited — this stands in for the server
+    # process dying and being restarted, per DESIGN's restart-resilience goal.
 
     assert db_path.exists()
 
-    with build_sqlite_checkpointer(str(db_path)) as checkpointer:
+    async with build_sqlite_checkpointer(str(db_path)) as checkpointer:
         # a brand new checkpointer instance and a brand new compiled graph
         # object, pointing at the same db file and thread_id.
         graph = _compile_counter_graph(checkpointer)
-        # get_state() hands back an untyped dict — this is a trust boundary
+        # aget_state() hands back an untyped dict — this is a trust boundary
         # like any other (CLAUDE.md convention: parse it), not a place to
         # wave the mismatch through with a type: ignore.
-        restored = TypeAdapter(_CounterState).validate_python(graph.get_state(config).values)
+        state = await graph.aget_state(config)
+        restored = TypeAdapter(_CounterState).validate_python(state.values)
         assert restored == {"count": 1}
 
-        result = graph.invoke(restored, config)
+        result = await graph.ainvoke(restored, config)
         assert result == {"count": 2}  # continues from the restored state
 
 
-def test_sqlite_checkpointer_creates_missing_parent_directories(tmp_path: Path) -> None:
+async def test_sqlite_checkpointer_creates_missing_parent_directories(tmp_path: Path) -> None:
     db_path = tmp_path / "nested" / "does" / "not" / "exist" / "checkpoints.db"
 
-    with build_sqlite_checkpointer(str(db_path)):
+    async with build_sqlite_checkpointer(str(db_path)):
         pass
 
     assert db_path.parent.is_dir()

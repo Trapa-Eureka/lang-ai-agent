@@ -4,7 +4,7 @@
 
 ## 1. 원칙
 
-- 테스트에서 네트워크·실 LLM 호출 0건. 모델 = ScriptedChatModel, 도구 = 페이크, 발송 = 목, 체크포인터 = InMemorySaver(재시작 테스트만 임시파일 SqliteSaver).
+- 테스트에서 네트워크·실 LLM 호출 0건. 모델 = ScriptedChatModel, 도구 = 페이크, 발송 = 목, 체크포인터 = InMemorySaver(재시작 테스트만 임시파일 AsyncSqliteSaver — 그래프가 async라 동기 SqliteSaver는 쓸 수 없음).
 - 플레이키 발생 시 **실모델을 넣어 고치지 않는다** — 대본이나 코드를 고친다.
 - `make check` = ruff + pyright + pytest. 전체 수 초 내.
 - 실모델 검증은 `make smoke`(사람 전용)와 v0.3 evals의 몫.
@@ -38,7 +38,7 @@
 - [ ] SEND_MODE=dry_run이면 승인돼도 MockEffects가 실발송 경로를 타지 않음 (이중 게이트)
 
 **영속·재시작**
-- [ ] 임시파일 SqliteSaver: 인터럽트 상태에서 그래프 객체 폐기 → 재컴파일(동일 DB·thread_id) → approve 재개 성공
+- [ ] 임시파일 AsyncSqliteSaver: 인터럽트 상태에서 그래프 객체 폐기 → 재컴파일(동일 DB·thread_id) → approve 재개 성공
 - [ ] 스레드 격리: 두 thread_id 병행 실행, 상태 혼입 없음
 
 **도구·에러**
