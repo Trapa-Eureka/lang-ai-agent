@@ -1,0 +1,72 @@
+[project]
+name = "lang-ai-agent"
+version = "0.1.0"
+description = "LangGraph-based production agent backend with a human-approval gate for effectful tools (Ops Copilot demo)"
+authors = [
+    { name = "Trapa-Eureka", email = "son199@hanmail.net" }
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.141.1",
+    "langchain-anthropic>=1.7.1",
+    "langchain-core>=1.6.1",
+    "langchain-mcp-adapters>=0.3.2",
+    "langgraph>=1.2.11",
+    "pydantic>=2",
+    "uvicorn[standard]>=0.52.4",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.9,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.411",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.6",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+# ruff format also rewrites fenced ```python blocks inside Markdown; docs/*.md
+# use compact pseudo-code for illustration, not real formatted source.
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["lang_ai_agent"]
+
+[tool.pyright]
+include = ["src", "tests"]
+exclude = ["tests/typecheck_fixtures"]
+typeCheckingMode = "strict"
+pythonVersion = "3.12"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=lang_ai_agent",
+    "--cov-report=term-missing",
+]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["src/lang_ai_agent"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:"]

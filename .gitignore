@@ -1,0 +1,24 @@
+# secrets — never commit, only .env.example
+.env
+
+# runtime data (SqliteSaver checkpoints, etc.)
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# uv-managed virtualenv
+.venv/
+
+# test & lint caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
