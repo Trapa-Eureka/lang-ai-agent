@@ -43,3 +43,4 @@
 - `SEND_MODE=live` 전환과 실 부작용 승인
 - GitHub 공개(퍼블리시) 승인과 영어 README 최종 톤
 - 시크릿·MCP 서버 경로 등 로컬 환경 구성
+- **정식(prod) PyPI 배포 실행 승인** — 동일 버전은 삭제 후 재업로드 불가라 `SEND_MODE=live`와 동급 비가역 행동. TestPyPI 배포까지는 에이전트가 자율 진행 가능.

@@ -7,7 +7,7 @@
 - 완료 기준은 전부 기계 판정 가능. 완료 시 상태 `DONE(날짜)` + 커밋(`T{n}: 요약`).
 - 병렬 레인: T1 완료 후 **A(T2), B(T3), C(T4)** 는 서로 다른 worktree 에이전트로 동시 진행 가능. T5가 허브, 이후 **T6/T8/T9** 재병렬.
 
-의존 그래프: `T0 → T1 → {A: T2, B: T3, C: T4} → T5 → {T6, T8, T9} → T7(T5,T6) → T10(T7,T8,T9) → T11`
+의존 그래프: `T0 → T1 → {A: T2, B: T3, C: T4} → T5 → {T6, T8, T9} → T7(T5,T6) → T10(T7,T8,T9) → T11 → T13 → T14 → T15`. T12(문서)는 선행 의존 없음 — 독립 실행, 완료(DONE).
 
 ---
 
@@ -59,7 +59,28 @@
 - 목표: `scripts/smoke.py`(실모델 시나리오1 + 콘솔 승인, `--mcp`로 실 retail-mcp), 영어 README 초안(내부 docs는 한국어 유지), 60초 데모 스크립트 시나리오, GitHub Actions `ci.yml`(make check).
 - 완료 기준: [ ] smoke 절차가 README에 5줄 이내 [ ] ci.yml이 로컬 act 또는 문법 검증 통과 [ ] 데모 시나리오 문서화 [ ] check 통과
 
+### T12 — PyPI·npm 배포 방향 문서화 · 상태: DONE(2026-09-04) · 의존: 없음
+- 목표: SPEC/DESIGN/WORKFLOW/README에 "PyPI 배포"를 v0.1 정식 목표로 반영하고, npm(JS/TS 클라이언트 SDK) 배포는 v0.1 비목표로 명시해 착수를 보류한다. 사용자와의 대화로 방향 확정.
+- 완료 기준: [x] SPEC §2/§3/§5/§6/§7 갱신 [x] DESIGN에 §10 배포(Packaging) 섹션 추가 [x] WORKFLOW §4 자율성 한계선에 "정식 PyPI 배포 승인" 추가 [x] README 상태 로그 갱신 [x] 코드 변경 없음(문서 전용) 확인
+
+### T13 — PyPI 패키징 · 상태: TODO · 의존: T11
+- 목표: `pyproject.toml` 배포 메타데이터(description/license/classifiers/urls/authors) 정비, `uv build`로 sdist+wheel 생성 검증, TestPyPI 시험 배포.
+- 완료 기준: [ ] `uv build` 성공 산출물(sdist+wheel) 확인 [ ] TestPyPI 업로드 성공 [ ] `--index-url` TestPyPI로 설치·임포트 확인 [ ] check 통과
+
+### T14 — PyPI 정식 배포 워크플로 · 상태: TODO · 의존: T13
+- 목표: GitHub Actions + Trusted Publishing(OIDC)으로 태그 푸시 시 정식 PyPI 배포 파이프라인 구성. **정식 배포 실행은 매번 사람 승인 후 트리거**(WORKFLOW §4).
+- 완료 기준: [ ] 워크플로 yml 문법 검증 [ ] 버전 태그 규칙 문서화 [ ] 사람 승인 하 정식 배포 1회 성공 [ ] check 통과
+
+### T15 — 최종 통합 공개 · 상태: TODO · 의존: T11, T14
+- 목표: 루트 README에 PyPI 배지·설치 커맨드 추가, LICENSE 파일 확정, GitHub 공개 체크리스트(SPEC §7) 전항목 점검.
+- 완료 기준: [ ] README에 PyPI 배지 + `pip install`/`uv add` 안내 [ ] LICENSE 파일 추가 [ ] SPEC §7 기준 전항목 충족 확인
+
 ---
+
+## 보류 — npm(JS/TS 클라이언트 SDK) 배포
+
+- 2026-09-04: 사용자 확인 하에 착수 보류(T12). 이 백엔드의 HTTP+SSE API(DESIGN §5)를 감싸는 별도 TypeScript 클라이언트 패키지를 신규로 만들어 npm에 배포하는 방향이며, PyPI 배포(T13~T15) 안정화 이후 별도로 재논의한다.
+- 재개 시 예상 범위(초안, 번호는 재개 시점에 새로 부여): SDK 스캐폴딩(`clients/typescript/` 등 위치 결정) → 코어 클라이언트 구현(DESIGN §5 계약 타입화 + 목 서버 기반 유닛 테스트) → npm 배포 워크플로.
 
 ## v0.2 대기열 (착수 금지 — SPEC 로드맵 참조)
 
