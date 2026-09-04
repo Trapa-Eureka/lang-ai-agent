@@ -11,29 +11,32 @@
 
 ---
 
-### T0 — 프로젝트 스캐폴딩 · 상태: TODO
+### T0 — 프로젝트 스캐폴딩 · 상태: DONE(2026-09-04)
 - 목표: uv 프로젝트(pyproject), ruff·pyright(strict)·pytest(+asyncio, cov) 설정, Makefile(check/test/lint/typecheck/dev/smoke), `.env.example`, `.gitignore`(.env, data/).
-- 완료 기준: [ ] `make check` 통과 [ ] 더미 async 테스트 1개 실행 [ ] pyright strict 확인(의도적 타입 오류가 잡히는 스냅샷 테스트) [ ] git init + 첫 커밋
+- 완료 기준: [x] `make check` 통과 [x] 더미 async 테스트 1개 실행 [x] pyright strict 확인(의도적 타입 오류가 잡히는 스냅샷 테스트) [x] git init + 첫 커밋
 
-### T1 — 상태·타입·도구 규약 · 상태: TODO · 의존: T0
+### T1 — 상태·타입·도구 규약 · 상태: DONE(2026-09-04) · 의존: T0
 - 목표: `core/state.py`(AgentState, PendingAction, Usage), `core/tools_spec.py`(ToolSpec, safe/effect 분류), SSE 이벤트 Pydantic 스키마(`api/sse.py`의 타입부).
-- 완료 기준: [ ] 전 모델 pyright 통과·직렬화 라운드트립 테스트 [ ] 상태 대용량 금지 규칙을 docstring에 명시 [ ] check 통과
+- 완료 기준: [x] 전 모델 pyright 통과·직렬화 라운드트립 테스트 [x] 상태 대용량 금지 규칙을 docstring에 명시 [x] check 통과
 
-### T2 (레인 A) — ScriptedChatModel + 대본 빌더 · 상태: TODO · 의존: T1
+### T2 (레인 A) — ScriptedChatModel + 대본 빌더 · 상태: DONE(2026-09-04) · 의존: T1
 - 목표: TESTING §2의 ScriptedChatModel(BaseChatModel 상속, tool_calls 재생, assert_exhausted)과 `script()` 빌더.
-- 완료 기준: [ ] 대본 소진·잔여·불일치 시 명확한 실패 메시지 테스트 [ ] tool_calls 포함 AIMessage 재생 테스트 [ ] check 통과
+- 완료 기준: [x] 대본 소진·잔여·불일치 시 명확한 실패 메시지 테스트 [x] tool_calls 포함 AIMessage 재생 테스트 [x] check 통과
 
-### T3 (레인 B) — 도구 계층 · 상태: TODO · 의존: T1
+### T3 (레인 B) — 도구 계층 · 상태: DONE(2026-09-04) · 의존: T1
 - 목표: 내장 페이크 3종(retail-mcp 스키마 미러, `fail_on` 주입), `adapters/effects.py`(SEND_MODE 이중 게이트) + MockEffects.
-- 완료 기준: [ ] 도구 인자 zod급 검증(Pydantic args_schema) [ ] dry_run에서 실발송 경로 미진입 테스트 [ ] check 통과
+- 완료 기준: [x] 도구 인자 zod급 검증(Pydantic args_schema) [x] dry_run에서 실발송 경로 미진입 테스트 [x] check 통과
 
-### T4 (레인 C) — 체크포인터·모델 팩토리 · 상태: TODO · 의존: T1
+### T4 (레인 C) — 체크포인터·모델 팩토리 · 상태: DONE(2026-09-04) · 의존: T1
 - 목표: `adapters/checkpoint.py`(InMemory/Sqlite 선택), `adapters/llm.py`(init_chat_model, MODEL env), thread config 유틸.
-- 완료 기준: [ ] 임시파일 SqliteSaver 저장·복원 테스트 [ ] 잘못된 MODEL 문자열 → 수정 방법 담긴 에러 [ ] check 통과
+- 완료 기준: [x] 임시파일 AsyncSqliteSaver 저장·복원 테스트 [x] 잘못된 MODEL 문자열 → 수정 방법 담긴 에러 [x] check 통과
+- 개정(T5 작업 중 발견): 그래프가 async로 동작해 동기 `SqliteSaver`는 `ainvoke`/`aget_state`에서 `NotImplementedError`를 던짐 — `AsyncSqliteSaver`로 교체(아래 §체크포인터 표기도 동일 수정).
 
-### T5 — 그래프 코어 · 상태: TODO · 의존: T2, T3, T4
+### T5 — 그래프 코어 · 상태: DONE(2026-09-04) · 의존: T2, T3, T4
 - 목표: `core/graph.py` — DESIGN §3 토폴로지(agent/route/safe_tools/approval+interrupt/effect_tools), 컴파일 팩토리.
-- 완료 기준: [ ] **TESTING §3 골든 궤적 4종 전부** [ ] **§4 그래프·승인 게이트 5항목 전부**(구조 불변식 포함) [ ] check 통과
+- 완료 기준: [x] **TESTING §3 골든 궤적 4종 전부** [x] **§4 그래프·승인 게이트 5항목 전부**(구조 불변식 포함) [x] check 통과
+- 덤: TESTING §4 "도구·에러"의 미등록 도구·도구 예외 처리도 함께 구현·테스트(그래프 자체 구현에서 분리 불가능해서 포함, T5 완료 기준엔 없었지만 커버).
+- 개정: T4의 체크포인터를 `AsyncSqliteSaver`로 교정(위 T4 항목 참고) + `PendingAction`을 msgpack 역직렬화 허용 목록에 등록(등록 안 하면 "will be blocked in a future version" 경고 후 향후 langgraph 버전에서 재시작 복원이 깨질 수 있었음).
 
 ### T6 — SSE 이벤트 매퍼 · 상태: TODO · 의존: T5
 - 목표: `astream_events` → 내부 이벤트 스트림 변환(api/sse.py), 이벤트 순서 보장.

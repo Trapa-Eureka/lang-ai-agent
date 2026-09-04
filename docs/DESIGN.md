@@ -18,7 +18,7 @@ core/graph.py (StateGraph + checkpointer)
     └──(no tool_calls)──► END
       │
       ├ adapters/llm.py         init_chat_model → 기본 Claude (모델 불가지론)
-      ├ adapters/checkpoint.py  InMemorySaver(test) / SqliteSaver(dev·prod v0.1)
+      ├ adapters/checkpoint.py  InMemorySaver(test) / AsyncSqliteSaver(dev·prod v0.1)
       ├ adapters/mcp_loader.py  mcp_servers.json → MultiServerMCPClient → BaseTool[]
       └ adapters/effects.py     발송 등 부작용 실제 구현 (SEND_MODE 게이트)
 ```

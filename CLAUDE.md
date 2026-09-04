@@ -9,7 +9,7 @@ LangGraph 기반 프로덕션 에이전트 백엔드 (Ops Copilot 데모). 스�
 - 에이전트: LangGraph (커스텀 StateGraph — prebuilt 미사용이 의도), LangChain core
 - 모델: `init_chat_model` 경유 모델 불가지론, 기본 Claude(`langchain-anthropic`)
 - MCP 도구: `langchain-mcp-adapters` (`MultiServerMCPClient`)
-- API: FastAPI + SSE 스트리밍, 체크포인트: InMemorySaver(테스트) / SqliteSaver(개발·단일 서버)
+- API: FastAPI + SSE 스트리밍, 체크포인트: InMemorySaver(테스트) / AsyncSqliteSaver(개발·단일 서버, 그래프가 async라 동기 SqliteSaver 불가)
 - 검증: pytest + pytest-asyncio, ruff(lint+format), pyright
 
 ## 명령어 (Makefile)
