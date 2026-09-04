@@ -1,6 +1,7 @@
 """Tests for ScriptedChatModel and its script() builder (T2 completion criteria)."""
 
 import pytest
+from langchain_core.messages import AIMessageChunk
 
 from tests.helpers.scripted_chat_model import (
     ScriptedChatModel,
@@ -8,6 +9,15 @@ from tests.helpers.scripted_chat_model import (
     ScriptExhaustedError,
     script,
 )
+
+
+def _text(chunks: list[AIMessageChunk]) -> str:
+    """AIMessageChunk.content can be multi-modal (str | list[...]) in
+    general; every chunk ScriptedChatModel produces is plain text, so this
+    narrows it back for the tests below.
+    """
+    return "".join(c.content for c in chunks if isinstance(c.content, str))
+
 
 # --- exhaustion: calling the model more times than the script provides -----
 
@@ -122,3 +132,46 @@ def test_bind_tools_does_not_change_what_gets_replayed() -> None:
     result = bound.invoke("hi")
 
     assert result.content == "ok"
+
+
+# --- streaming: needed for the SSE mapper's token events (T6) --------------
+
+
+def test_stream_yields_word_chunks_that_reassemble_to_the_final_text() -> None:
+    model = ScriptedChatModel(script=script().final("All good here").build())
+
+    chunks = list(model.stream("hi"))
+
+    assert _text(chunks) == "All good here"
+    assert len(chunks) > 1  # actually streamed, not one giant chunk
+
+
+async def test_astream_yields_the_same_shape_as_stream() -> None:
+    model = ScriptedChatModel(script=script().final("All good here").build())
+
+    chunks = [c async for c in model.astream("hi")]
+
+    assert _text(chunks) == "All good here"
+
+
+def test_stream_yields_a_tool_calling_turn_as_a_single_chunk() -> None:
+    model = ScriptedChatModel(
+        script=script().tool_call("check_stockout", {"store": "main"}).build()
+    )
+
+    # BaseChatModel.stream() appends its own empty end-of-stream marker
+    # chunk on top of whatever _stream() yields — only the ones actually
+    # carrying content/tool_calls come from ScriptedChatModel itself.
+    chunks = [c for c in model.stream("hi") if c.content or c.tool_calls]
+
+    assert len(chunks) == 1
+    assert chunks[0].tool_calls == [
+        {"name": "check_stockout", "args": {"store": "main"}, "id": "call_1", "type": "tool_call"}
+    ]
+
+
+def test_stream_still_raises_the_exhaustion_error() -> None:
+    model = ScriptedChatModel(script=[])
+
+    with pytest.raises(ScriptExhaustedError):
+        list(model.stream("hi"))

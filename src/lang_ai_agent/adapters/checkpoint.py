@@ -24,19 +24,24 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 
 def _serde() -> JsonPlusSerializer:
-    """A serializer that explicitly allows-lists lang_ai_agent's own
-    checkpointed types.
+    """A serializer that explicitly allow-lists lang_ai_agent's own
+    checkpointed types: both `AgentState` fields that are plain Pydantic
+    models rather than one of LangGraph's own message/checkpoint types.
 
-    `AgentState.pending` (core/state.py) holds a `PendingAction` — a plain
-    Pydantic model, not one of LangGraph's own message/checkpoint types.
-    Without this, LangGraph's default serde logs "Deserializing
-    unregistered type ... This will be blocked in a future version" on
-    every checkpoint write and will start *refusing* to deserialize it once
-    that happens — which would silently break every interrupted thread's
-    restart resilience (DESIGN's whole reason for a real checkpointer).
+    Passing an *explicit* `allowed_msgpack_modules` list switches the
+    serde from "warn on any unregistered type" to "block anything not on
+    this list" — so every such type has to be listed here, not just the
+    first one that happened to need it (confirmed the hard way: adding
+    only PendingAction here left `Usage` silently blocked). Leaving either
+    unregistered would silently break restart resilience (DESIGN's whole
+    reason for a real checkpointer) once deserialization is actually
+    refused rather than just logged.
     """
     return JsonPlusSerializer(
-        allowed_msgpack_modules=[("lang_ai_agent.core.state", "PendingAction")]
+        allowed_msgpack_modules=[
+            ("lang_ai_agent.core.state", "PendingAction"),
+            ("lang_ai_agent.core.state", "Usage"),
+        ]
     )
 
 

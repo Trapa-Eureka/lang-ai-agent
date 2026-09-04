@@ -38,9 +38,11 @@
 - 덤: TESTING §4 "도구·에러"의 미등록 도구·도구 예외 처리도 함께 구현·테스트(그래프 자체 구현에서 분리 불가능해서 포함, T5 완료 기준엔 없었지만 커버).
 - 개정: T4의 체크포인터를 `AsyncSqliteSaver`로 교정(위 T4 항목 참고) + `PendingAction`을 msgpack 역직렬화 허용 목록에 등록(등록 안 하면 "will be blocked in a future version" 경고 후 향후 langgraph 버전에서 재시작 복원이 깨질 수 있었음).
 
-### T6 — SSE 이벤트 매퍼 · 상태: TODO · 의존: T5
+### T6 — SSE 이벤트 매퍼 · 상태: DONE(2026-09-04) · 의존: T5
 - 목표: `astream_events` → 내부 이벤트 스트림 변환(api/sse.py), 이벤트 순서 보장.
-- 완료 기준: [ ] 대본 기반 스트림에서 이벤트 순서·스키마 테스트 [ ] interrupt 이벤트에 pending 포함 [ ] check 통과
+- 완료 기준: [x] 대본 기반 스트림에서 이벤트 순서·스키마 테스트 [x] interrupt 이벤트에 pending 포함 [x] check 통과
+- 개정: (1) ScriptedChatModel(T2)에 `_stream`/`_astream` 추가 — 스트리밍 미구현 모델은 `on_chat_model_stream`을 아예 안 내보내 token 이벤트 매핑을 테스트할 수 없었음. (2) `Usage`도 msgpack 허용 목록에 추가(T5에서 `PendingAction`만 등록해 `Usage`가 조용히 차단되고 있었음) — 인터럽트 상태 조회(`aget_state`) 과정에서 발견.
+- 설계 메모: `astream_events`는 그래프 인터럽트를 이벤트로 직접 노출하지 않음 — 스트림 종료 후 `aget_state(config).interrupts`로 별도 확인. `tool_call_id`는 모델의 실제 tool_call.id가 아니라 `astream_events`의 run_id(on_tool_start 시점엔 전자를 알 수 없음).
 
 ### T7 — FastAPI 서비스 · 상태: TODO · 의존: T5, T6
 - 목표: 엔드포인트 4종 + Bearer 인증 + SSE 응답. app.py는 조립만(로직 없음).

@@ -8,6 +8,10 @@ Five items, one test (or small group) each:
 5. SEND_MODE=dry_run means approval never reaches the real send path
 """
 
+import logging
+
+import pytest
+
 from lang_ai_agent.adapters.effects import SendMode
 from lang_ai_agent.core.graph import APPROVAL, EFFECT_TOOLS
 from lang_ai_agent.core.state import PendingAction
@@ -135,3 +139,29 @@ async def test_live_mode_approval_does_reach_the_send_path(make_harness: MakeHar
     await harness.resume(approved=True)
 
     assert harness.effects.live_send_calls
+
+
+# --- regression: both custom AgentState types must survive checkpointing ---
+
+
+async def test_checkpoint_serde_does_not_block_pending_or_usage(
+    make_harness: MakeHarness, caplog: pytest.LogCaptureFixture
+) -> None:
+    """`PendingAction` and `Usage` (core/state.py) are plain Pydantic models,
+    not LangGraph's own message/checkpoint types — adapters/checkpoint.py
+    must allow-list *both* with its checkpointer's serde, or one of them
+    gets silently blocked from proper deserialization (caught the hard way:
+    an earlier fix allow-listed only PendingAction and left Usage blocked).
+    """
+    harness: GraphHarness = make_harness(_SEND_EMAIL_SCRIPT)
+
+    with caplog.at_level(logging.WARNING, logger="langgraph.checkpoint.serde.jsonplus"):
+        await harness.run("reorder please")
+        await harness.resume(approved=True)
+
+    problems = [
+        record.message
+        for record in caplog.records
+        if "unregistered type" in record.message or "Blocked deserialization" in record.message
+    ]
+    assert problems == []

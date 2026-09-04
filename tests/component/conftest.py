@@ -16,6 +16,7 @@ from langgraph.types import Command
 from lang_ai_agent.adapters.builtin_tools import build_builtin_tool_specs
 from lang_ai_agent.adapters.checkpoint import build_memory_checkpointer, thread_config
 from lang_ai_agent.adapters.effects import SendMode
+from lang_ai_agent.api.sse import SSEEvent, stream_sse_events
 from lang_ai_agent.core.graph import build_graph
 from lang_ai_agent.core.state import AgentState, Usage
 from tests.helpers.mock_effects import MockEffects
@@ -90,6 +91,20 @@ class GraphHarness:
     async def state_values(self) -> dict[str, Any]:
         state = await self.graph.aget_state(self.config)
         return state.values
+
+    async def sse_run(self, content: str) -> list[SSEEvent]:
+        """Like `run`, but through the SSE mapper (T6) instead of raw astream."""
+        initial_state: AgentState = {
+            "messages": [HumanMessage(content=content)],
+            "pending": None,
+            "usage": Usage(),
+        }
+        return [event async for event in stream_sse_events(self.graph, initial_state, self.config)]
+
+    async def sse_resume(self, approved: bool, comment: str | None = None) -> list[SSEEvent]:
+        """Like `resume`, but through the SSE mapper (T6) instead of raw astream."""
+        resume_command = Command(resume={"approved": approved, "comment": comment})
+        return [event async for event in stream_sse_events(self.graph, resume_command, self.config)]
 
 
 class MakeHarness(Protocol):

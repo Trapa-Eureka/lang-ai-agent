@@ -76,6 +76,7 @@ class ToolSpec(BaseModel):
 
 - 인증: `Authorization: Bearer $APP_BEARER_TOKEN` (v0.1 단일 토큰).
 - SSE 이벤트 타입 (api/sse.py — `astream_events` 매핑): `token`(모델 텍스트 델타) · `tool_start`/`tool_end`(이름·소요) · `interrupt`(pending·초안) · `usage` · `done` · `error`. 이벤트 스키마는 Pydantic으로 고정하고 테스트한다.
+- 구현 메모(T6): `astream_events`는 그래프 인터럽트를 이벤트로 직접 노출하지 않는다 — 스트림이 자연 종료된 후 `aget_state(config).interrupts`를 별도로 확인해 `interrupt` 이벤트를 만든다. `tool_start`/`tool_end`의 상관관계 id는 모델의 실제 tool_call.id가 아니라 `astream_events`의 run_id(on_tool_start 시점엔 전자를 알 수 없어 후자로 대체).
 
 ## 6. MCP 로더 (adapters/mcp_loader.py)
 
