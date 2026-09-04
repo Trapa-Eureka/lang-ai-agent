@@ -1,0 +1,66 @@
+# TASKS — lang_ai_agent v0.1 백로그
+
+## 사용법
+
+- 한 에이전트 세션 = 한 태스크. 프롬프트 템플릿:
+  > `docs/SPEC.md`, `docs/DESIGN.md`, `docs/TESTING.md`를 읽고 **T5**를 수행해. 완료 기준을 전부 충족하고 `make check`가 통과할 때까지 스스로 수정해. 끝나면 변경 파일과 검증 결과를 요약해.
+- 완료 기준은 전부 기계 판정 가능. 완료 시 상태 `DONE(날짜)` + 커밋(`T{n}: 요약`).
+- 병렬 레인: T1 완료 후 **A(T2), B(T3), C(T4)** 는 서로 다른 worktree 에이전트로 동시 진행 가능. T5가 허브, 이후 **T6/T8/T9** 재병렬.
+
+의존 그래프: `T0 → T1 → {A: T2, B: T3, C: T4} → T5 → {T6, T8, T9} → T7(T5,T6) → T10(T7,T8,T9) → T11`
+
+---
+
+### T0 — 프로젝트 스캐폴딩 · 상태: TODO
+- 목표: uv 프로젝트(pyproject), ruff·pyright(strict)·pytest(+asyncio, cov) 설정, Makefile(check/test/lint/typecheck/dev/smoke), `.env.example`, `.gitignore`(.env, data/).
+- 완료 기준: [ ] `make check` 통과 [ ] 더미 async 테스트 1개 실행 [ ] pyright strict 확인(의도적 타입 오류가 잡히는 스냅샷 테스트) [ ] git init + 첫 커밋
+
+### T1 — 상태·타입·도구 규약 · 상태: TODO · 의존: T0
+- 목표: `core/state.py`(AgentState, PendingAction, Usage), `core/tools_spec.py`(ToolSpec, safe/effect 분류), SSE 이벤트 Pydantic 스키마(`api/sse.py`의 타입부).
+- 완료 기준: [ ] 전 모델 pyright 통과·직렬화 라운드트립 테스트 [ ] 상태 대용량 금지 규칙을 docstring에 명시 [ ] check 통과
+
+### T2 (레인 A) — ScriptedChatModel + 대본 빌더 · 상태: TODO · 의존: T1
+- 목표: TESTING §2의 ScriptedChatModel(BaseChatModel 상속, tool_calls 재생, assert_exhausted)과 `script()` 빌더.
+- 완료 기준: [ ] 대본 소진·잔여·불일치 시 명확한 실패 메시지 테스트 [ ] tool_calls 포함 AIMessage 재생 테스트 [ ] check 통과
+
+### T3 (레인 B) — 도구 계층 · 상태: TODO · 의존: T1
+- 목표: 내장 페이크 3종(retail-mcp 스키마 미러, `fail_on` 주입), `adapters/effects.py`(SEND_MODE 이중 게이트) + MockEffects.
+- 완료 기준: [ ] 도구 인자 zod급 검증(Pydantic args_schema) [ ] dry_run에서 실발송 경로 미진입 테스트 [ ] check 통과
+
+### T4 (레인 C) — 체크포인터·모델 팩토리 · 상태: TODO · 의존: T1
+- 목표: `adapters/checkpoint.py`(InMemory/Sqlite 선택), `adapters/llm.py`(init_chat_model, MODEL env), thread config 유틸.
+- 완료 기준: [ ] 임시파일 SqliteSaver 저장·복원 테스트 [ ] 잘못된 MODEL 문자열 → 수정 방법 담긴 에러 [ ] check 통과
+
+### T5 — 그래프 코어 · 상태: TODO · 의존: T2, T3, T4
+- 목표: `core/graph.py` — DESIGN §3 토폴로지(agent/route/safe_tools/approval+interrupt/effect_tools), 컴파일 팩토리.
+- 완료 기준: [ ] **TESTING §3 골든 궤적 4종 전부** [ ] **§4 그래프·승인 게이트 5항목 전부**(구조 불변식 포함) [ ] check 통과
+
+### T6 — SSE 이벤트 매퍼 · 상태: TODO · 의존: T5
+- 목표: `astream_events` → 내부 이벤트 스트림 변환(api/sse.py), 이벤트 순서 보장.
+- 완료 기준: [ ] 대본 기반 스트림에서 이벤트 순서·스키마 테스트 [ ] interrupt 이벤트에 pending 포함 [ ] check 통과
+
+### T7 — FastAPI 서비스 · 상태: TODO · 의존: T5, T6
+- 목표: 엔드포인트 4종 + Bearer 인증 + SSE 응답. app.py는 조립만(로직 없음).
+- 완료 기준: [ ] **TESTING §4 API·SSE 4항목 전부** (httpx ASGI) [ ] `make dev` 기동 [ ] check 통과
+
+### T8 — usage·관측성 · 상태: TODO · 의존: T5
+- 목표: 토큰 집계 콜백 → 상태 usage → SSE/state 노출, 구조화 JSON 로그, LANGSMITH_TRACING 옵션 배선.
+- 완료 기준: [ ] usage 누적 일치 테스트(TESTING §4) [ ] 로그에 thread_id·node·tool 포함 스냅샷 [ ] check 통과
+
+### T9 — MCP 로더 · 상태: TODO · 의존: T5
+- 목표: `mcp_servers.json` 파서 + `MultiServerMCPClient` 로더 + approval 매핑(미지정 도구 → effect 기본값), `.example` 파일.
+- 완료 기준: [ ] 파싱·매핑 단위 테스트(실 프로세스 없음) [ ] 설정 파일 부재 시 수정 방법 담긴 에러 [ ] check 통과
+
+### T10 — e2e-mock + 커버리지 · 상태: TODO · 의존: T7, T8, T9
+- 목표: SPEC §4 시나리오 1~4를 API 레벨 e2e-mock으로(재시작 내성 포함), 커버리지 리포트.
+- 완료 기준: [ ] 4개 시나리오 전부 통과 [ ] core ≥ 90% 리포트 첨부 [ ] check 통과
+
+### T11 — 스모크 + 포트폴리오 준비 · 상태: TODO · 의존: T10
+- 목표: `scripts/smoke.py`(실모델 시나리오1 + 콘솔 승인, `--mcp`로 실 retail-mcp), 영어 README 초안(내부 docs는 한국어 유지), 60초 데모 스크립트 시나리오, GitHub Actions `ci.yml`(make check).
+- 완료 기준: [ ] smoke 절차가 README에 5줄 이내 [ ] ci.yml이 로컬 act 또는 문법 검증 통과 [ ] 데모 시나리오 문서화 [ ] check 통과
+
+---
+
+## v0.2 대기열 (착수 금지 — SPEC 로드맵 참조)
+
+- PostgresSaver / supervisor 멀티에이전트 / 실 retail-mcp 상시 연결(프로세스 수명 관리) / 평가 하니스는 v0.3
