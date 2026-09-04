@@ -51,6 +51,12 @@ typeCheckingMode = "strict"
 pythonVersion = "3.12"
 venvPath = "."
 venv = ".venv"
+# langgraph/langchain-core ship a package-level py.typed and are fully
+# annotated in source, but pyright's stub-completeness heuristic still
+# flags some of their submodules (e.g. langgraph.graph.message) as if a
+# dedicated .pyi stub were missing. We trust their inline types rather than
+# accumulate a `# type: ignore` on every import site across the codebase.
+reportMissingTypeStubs = false
 
 [tool.pytest.ini_options]
 minversion = "9.0"
