@@ -13,7 +13,7 @@ typecheck:
 	uv run pyright
 
 dev:
-	uv run uvicorn lang_ai_agent.api.app:app --reload
+	uv run uvicorn lang_ai_agent.api.app:create_default_app --factory --reload
 
 smoke:
 	uv run python scripts/smoke.py
