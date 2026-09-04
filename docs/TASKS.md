@@ -44,9 +44,10 @@
 - 개정: (1) ScriptedChatModel(T2)에 `_stream`/`_astream` 추가 — 스트리밍 미구현 모델은 `on_chat_model_stream`을 아예 안 내보내 token 이벤트 매핑을 테스트할 수 없었음. (2) `Usage`도 msgpack 허용 목록에 추가(T5에서 `PendingAction`만 등록해 `Usage`가 조용히 차단되고 있었음) — 인터럽트 상태 조회(`aget_state`) 과정에서 발견.
 - 설계 메모: `astream_events`는 그래프 인터럽트를 이벤트로 직접 노출하지 않음 — 스트림 종료 후 `aget_state(config).interrupts`로 별도 확인. `tool_call_id`는 모델의 실제 tool_call.id가 아니라 `astream_events`의 run_id(on_tool_start 시점엔 전자를 알 수 없음).
 
-### T7 — FastAPI 서비스 · 상태: TODO · 의존: T5, T6
+### T7 — FastAPI 서비스 · 상태: DONE(2026-09-05) · 의존: T5, T6
 - 목표: 엔드포인트 4종 + Bearer 인증 + SSE 응답. app.py는 조립만(로직 없음).
-- 완료 기준: [ ] **TESTING §4 API·SSE 4항목 전부** (httpx ASGI) [ ] `make dev` 기동 [ ] check 통과
+- 완료 기준: [x] **TESTING §4 API·SSE 4항목 전부** (httpx ASGI) [x] `make dev` 기동 [x] check 통과
+- 설계 메모: `create_app(graph_factory, bearer_token)`(주입용, 테스트) / `create_default_app()`(`.env` → Settings → 실모델 + AsyncSqliteSaver). `make dev`는 uvicorn `--factory`로 후자를 호출해 import 시점에 환경을 읽지 않음. 스레드는 첫 `/messages`에서 체크포인터에 생기며 존재 여부는 `aget_state().values`로 판정. 대기 중 인터럽트 없는 스레드의 `/approve`는 409. 설정은 pydantic-settings, SSE 프레이밍은 sse-starlette(`event:`=이벤트 type, `data:`=JSON).
 
 ### T8 — usage·관측성 · 상태: TODO · 의존: T5
 - 목표: 토큰 집계 콜백 → 상태 usage → SSE/state 노출, 구조화 JSON 로그, LANGSMITH_TRACING 옵션 배선.

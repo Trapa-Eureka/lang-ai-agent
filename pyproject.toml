@@ -17,6 +17,8 @@ dependencies = [
     "langgraph>=1.2.11",
     "langgraph-checkpoint-sqlite>=3.1.1",
     "pydantic>=2",
+    "pydantic-settings>=2.15.0",
+    "sse-starlette>=3.4.10",
     "uvicorn[standard]>=0.52.4",
 ]
 
@@ -26,6 +28,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "pyright>=1.1.411",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
