@@ -16,7 +16,7 @@ two shapes:
   shorter path than the test assumed).
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from typing import Any, NamedTuple, override
 
 from langchain_core.callbacks import (
@@ -24,9 +24,9 @@ from langchain_core.callbacks import (
     CallbackManagerForLLMRun,
 )
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
 from langchain_core.messages.tool import ToolCall
-from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 
@@ -44,6 +44,26 @@ class ScriptedToolCall(NamedTuple):
     name: str
     args: dict[str, Any]
     tool_call_id: str | None = None
+
+
+def _chunks_for(message: AIMessage) -> list[AIMessageChunk]:
+    """Split a scripted turn into a few streaming chunks (docs/TESTING.md §4:
+    the SSE mapper's "token*" events need something to stream from — a
+    non-streaming `_generate`/`_agenerate`-only model can't exercise that
+    path at all).
+
+    A tool-calling turn streams as a single chunk (this repo's SSE mapper
+    only cares that tool_calls arrive *some time* during the stream, not
+    how a real provider might dribble out partial JSON args — see T6).
+    A plain-text turn streams word by word, so tests can assert multiple
+    token events arrived in order.
+    """
+    if message.tool_calls:
+        return [AIMessageChunk(content=message.content, tool_calls=message.tool_calls)]
+    if not isinstance(message.content, str) or not message.content:
+        return [AIMessageChunk(content=message.content)]
+    words = message.content.split(" ")
+    return [AIMessageChunk(content=word if i == 0 else f" {word}") for i, word in enumerate(words)]
 
 
 class ScriptedChatModel(BaseChatModel):
@@ -78,6 +98,28 @@ class ScriptedChatModel(BaseChatModel):
         **kwargs: Any,
     ) -> ChatResult:
         return ChatResult(generations=[ChatGeneration(message=self._next_turn())])
+
+    @override
+    def _stream(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> Iterator[ChatGenerationChunk]:
+        for chunk in _chunks_for(self._next_turn()):
+            yield ChatGenerationChunk(message=chunk)
+
+    @override
+    async def _astream(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: AsyncCallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> AsyncIterator[ChatGenerationChunk]:
+        for chunk in _chunks_for(self._next_turn()):
+            yield ChatGenerationChunk(message=chunk)
 
     def _next_turn(self) -> AIMessage:
         if self.cursor >= len(self.script):
