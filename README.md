@@ -1,40 +1,127 @@
 # lang_ai_agent
 
-**LangGraph 기반 프로덕션 AI Agent 백엔드** — 글로벌 계약 시장 납품 표준을 겨냥한 레퍼런스 구현이자, MCP 자동화 코어의 에이전트 런타임 계층.
+**A production-shaped LangGraph agent backend**: streaming HTTP API, durable state that survives restarts, a human-approval gate for side-effecting tools, deterministic tests that never call a real LLM, and observability built in.
 
-한 프로젝트로 두 개의 포트폴리오를 만든다:
+It ships as an **Ops Copilot** demo (multi-store retail: "what's about to stock out?" → "send the reorder email"), but the runtime is domain-agnostic — the tools are the only retail-specific part. Swap them (or plug in your own MCP servers) and keep everything else.
 
-1. **글로벌 계약용 쇼케이스** — 클라이언트가 실제로 요구하는 프로덕션 패턴(스트리밍 API, 영속 상태·재시작 내성, 사람 승인 게이트, 결정론 테스트, 관측성)을 전부 갖춘 공개 레포.
-2. **자체 생태계의 런타임** — 이 에이전트의 도구는 MCP 서버다. `langchain-mcp-adapters`로 retail-mcp 같은 자체 MCP 서버를 도구로 물려, "내 MCP 서버들을 오케스트레이션하는 에이전트 백엔드"라는 스토리를 완성한다.
+> **Status** — v0.1 backend complete and gated by `make check` (ruff, pyright strict, pytest; 100% coverage on the graph core). PyPI packaging and the first release are next. Internal design docs under `docs/` are in Korean; this README is the English entry point.
 
-데모 도메인은 **Ops Copilot**: "품절 위험 확인하고 재주문 메일 보내줘" → 조회 도구 호출 → 메일 초안 → **사람 승인 인터럽트** → 승인 시 발송. 조회는 자유, 부작용은 반드시 승인 — sheet_mcp/retail-mcp의 이중 게이트 철학을 LangGraph `interrupt()`로 구현한 것이다.
+## How it works
 
-## 문서 맵
+The agent calls **read-only tools** freely. Any **side-effecting tool** stops the graph at a LangGraph `interrupt()` and waits for a human to approve or reject it over the API. The graph is checkpointed at that point, so the server can restart in between. A rejection with a comment goes back to the model, which revises its draft and asks again.
 
-| 문서 | 내용 | 읽는 시점 |
-|---|---|---|
-| `CLAUDE.md` | 에이전트 스티어링 — 스택, 명령어, 규칙, 가드레일 | 모든 에이전트 세션 시작 시 (자동 로드) |
-| `docs/SPEC.md` | 제품 스펙 — 목표/비목표, 시나리오, 로드맵 | 기능 논의·범위 판단 전 |
-| `docs/DESIGN.md` | 기술 설계 — 그래프, 상태, API, 도구 분류, MCP 연결 | 구현 전 필독 |
-| `docs/TESTING.md` | 테스트 전략 — ScriptedChatModel 결정론, 골든 궤적 | 테스트 작성 전 |
-| `docs/TASKS.md` | 태스크 백로그 — 에이전트 실행 단위, 완료 기준 | 작업 배정 시 |
-| `docs/WORKFLOW.md` | AI-native 개발 규칙 (공통 + 이 레포 특이사항) | 최초 1회 + 운영 중 참조 |
-
-## 개발 방식
-
-sheet_mcp/retail-mcp와 동일: **문서 → 에이전트 구현 → 검증**. 사람(Jin)은 스펙·리뷰·실모델 스모크·공개 승인을 맡고, 구현은 Claude Code가 `docs/TASKS.md` 단위로. 공통 게이트는 `make check`.
-
-## 퀵스타트 (T0 완료 후 유효)
-
-```bash
-uv sync
-make check        # ruff + pyright + pytest — 공통 게이트
-make dev          # FastAPI 서버 (uvicorn, SSE 스트리밍)
-make smoke        # 실 모델 1회 수동 스모크 (사람 전용)
+```mermaid
+flowchart LR
+    C[Client / curl] -- "HTTP + SSE (Bearer)" --> A[FastAPI · api/app.py]
+    A --> agent
+    agent -- tool_calls --> route
+    route -- safe --> safe_tools --> agent
+    route -- effect --> approval
+    approval -. "interrupt() ⏸ human approves" .-> effect_tools --> agent
+    agent -- no tool_calls --> END
 ```
 
-## 상태
+The only edge into `effect_tools` passes through `approval`. That is not a convention — a test walks the compiled graph and fails if any other path appears.
 
-- 2026-09-04: 문서 단계 (코드 미작성). T0부터 시작.
-- 공개 마일스톤: v0.1 완료 시 GitHub(Trapa-Eureka)에 영어 README + 데모와 함께 퍼블리시 (T11).
-- 2026-09-04: PyPI 배포를 v0.1 정식 목표로 추가 확정(T12, `docs/SPEC.md` §2/§7). npm(JS/TS 클라이언트 SDK) 배포는 착수 보류(`docs/TASKS.md` "보류" 섹션 참고).
+## Quickstart
+
+```bash
+uv sync                      # (pip install lang-ai-agent — after the PyPI release)
+uv run lang-ai-agent init    # pick a provider, paste your API key → writes .env (mode 0600)
+uv run lang-ai-agent serve   # http://127.0.0.1:8000 — fails fast if the key is missing
+```
+
+`init` supports **Anthropic** (default), **OpenAI**, **xAI** and **Google**; `MODEL` uses LangChain's `provider:model` form, so any provider `init_chat_model` knows works too. Your key only ever lives in the git-ignored `.env`.
+
+Talk to it from another terminal (`TOKEN` is the `APP_BEARER_TOKEN` that `init` printed):
+
+```bash
+H=(-H "Authorization: Bearer $TOKEN" -H 'content-type: application/json')
+TID=$(curl -s -X POST "${H[@]}" localhost:8000/threads | jq -r .thread_id)
+curl -sN -X POST "${H[@]}" localhost:8000/threads/$TID/messages \
+  -d '{"content":"Which items at store main will stock out next week? Summarize as a table."}'
+```
+
+You get a Server-Sent Events stream: `tool_start`/`tool_end` for `check_stockout`, `token` events with the table, then `usage` and `done`.
+
+## API
+
+| Method · path | Body | What it does |
+|---|---|---|
+| `POST /threads` | — | Issue a `thread_id` |
+| `POST /threads/{id}/messages` | `{content}` | Run the graph; **SSE stream** |
+| `GET /threads/{id}/state` | — | `last_message`, `pending` action, `usage`, `awaiting_approval` |
+| `POST /threads/{id}/approve` | `{approved, comment?}` | Resume from the interrupt; **SSE stream** |
+
+SSE events (Pydantic-typed, discriminated on `type`): `token` · `tool_start` · `tool_end` · `interrupt` (pending action + draft) · `usage` · `done` · `error`. A stream ends with either one `interrupt` or `usage` → `done`.
+
+## 60-second demo
+
+1. `lang-ai-agent serve` — one JSON log line, server up.
+2. Ask what will stock out at store `main` → tool call, streamed table.
+3. "Send the reorder email for the at-risk items" → suggestions are fetched, a draft is written, and the stream stops at **`interrupt`** showing the recipient and draft.
+4. `GET /state` → `awaiting_approval: true`.
+5. `POST /approve {"approved": true}` → the email tool runs (dry-run by default), the agent reports back, `usage` → `done`.
+
+The full script with timings and a restart-resilience variant is in `docs/DEMO.md`.
+
+## Real-model smoke
+
+```bash
+uv run lang-ai-agent init         # once — your key goes to .env only
+make smoke                        # scenario 1 (query) + scenario 2 (draft → y/n approval in the console)
+uv run lang-ai-agent smoke --mcp  # same, with the real MCP servers from mcp_servers.json
+```
+
+Always dry-run regardless of `.env`; costs 3–4 model calls (cents on a Sonnet-class model). Everything else in the repo runs without a key: `make check` makes zero network calls.
+
+## Why it is built this way
+
+- **Approval as topology, not a flag.** Effectful tools are reachable only through the `approval` node, and a graph-structure test enforces it. Sending is double-gated: the interrupt *and* `SEND_MODE=live`.
+- **The model is a script in tests.** `ScriptedChatModel` replays a fixed sequence of `AIMessage`s (tool calls included) and fails loudly if the script is exhausted or diverges. With the model scripted, the graph is a state machine and every path — approve, reject-and-revise, tool failure, restart mid-interrupt — is a deterministic test. Real models appear only in the smoke.
+- **State stays small.** State is serialized at every checkpoint, so it holds messages and minimal metadata; large tool results are summarized before they enter it.
+- **Static types as the cheapest feedback loop.** pyright strict + Pydantic v2 at every boundary (requests, model output, MCP responses), `Any` returns banned, `# type: ignore` requires a reason.
+- **Fail at startup, not on the first request.** A missing provider key or bearer token is a `ConfigError` with the fix in the message, raised before the server binds.
+- **Provider-agnostic, MCP-native.** `init_chat_model` for the model; `langchain-mcp-adapters` to mount MCP servers as tools, each mapped to safe/effect (unlisted tools default to *effect*).
+
+## Development
+
+```bash
+make check        # ruff check + pyright strict + pytest (core coverage gate ≥ 90%)
+make dev          # uvicorn with --reload
+```
+
+```
+src/lang_ai_agent/
+  core/       state.py (AgentState, PendingAction, Usage) · graph.py (StateGraph) · tools_spec.py (safe/effect)
+  adapters/   llm.py (providers) · checkpoint.py (AsyncSqliteSaver) · mcp_loader.py · effects.py · observability.py
+  api/        app.py (FastAPI assembly) · sse.py (event schema + mapper) · auth.py
+  cli.py      init · serve · smoke        smoke.py   real-model smoke logic
+tests/        helpers (ScriptedChatModel, MockEffects, FixedClock) · unit · component · e2e (API-level scenarios)
+```
+
+CI runs `make check` on every push and pull request (`.github/workflows/ci.yml`).
+
+## Docs (Korean)
+
+| Doc | Contents |
+|---|---|
+| `CLAUDE.md` | Agent steering: stack, commands, conventions, guardrails |
+| `docs/SPEC.md` | Product spec: goals, non-goals, scenarios, roadmap |
+| `docs/DESIGN.md` | Technical design: graph, state, API, tool classes, MCP, env, onboarding, packaging |
+| `docs/TESTING.md` | Test strategy: scripted model, golden trajectories, edge-case checklist |
+| `docs/TASKS.md` | Task backlog with machine-checkable completion criteria |
+| `docs/WORKFLOW.md` | AI-native development rules for this repo |
+| `docs/DEMO.md` | The 60-second demo script |
+
+This repo is developed doc-first: spec and design are updated before code, implementation is done task-by-task by Claude Code, and `make check` is the shared gate.
+
+## Roadmap
+
+- **v0.1** — single-agent graph + approval gate + FastAPI SSE + deterministic tests + onboarding CLI + CI + PyPI release
+- **v0.2** — PostgresSaver, supervisor multi-agent, always-on MCP server connections
+- **v0.3** — evaluation harness (golden-trajectory regression + eval sets), cost reports, Docker template
+
+## License
+
+To be finalized with the first release.

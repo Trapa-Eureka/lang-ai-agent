@@ -55,9 +55,15 @@
 **usage**
 - [x] 다중 모델 호출 누적 집계가 대본의 고정 usage 합과 일치
 
+**온보딩·설정 (T11)**
+- [x] `lang-ai-agent init`: 주입한 콘솔 입력으로 `.env` 작성(권한 0600, 프로바이더 키·자동 생성 토큰 포함), 기존 `.env`는 `--force` 없이는 거부
+- [x] 기동 검사: `MODEL` 프로바이더의 키 누락 → `create_default_app()`이 기동 시점에 `ConfigError`(환경변수명 + `lang-ai-agent init` 안내), 키 있으면 통과
+- [x] SSE `token`·`/state`의 `last_message`가 실모델 형태(콘텐츠 블록 리스트)에서도 나옴 — 블록 리스트 대본
+- [x] 스모크 승인 루프(`lang_ai_agent.smoke.run_scenarios`)를 대본 모델 + MockEffects로 검증 — 실모델 호출 0건, `SEND_MODE`는 강제 dry_run
+
 ## 5. 수동 스모크 (사람 전용 — scripts/smoke.py)
 
-`make smoke`: 실 Claude 모델로 시나리오 1(조회) 1회 + 인터럽트→콘솔 y/n 승인 흐름. `--mcp` 플래그 시 mcp_servers.json의 실 retail-mcp를 stdio로 물려 재현. 실발송(live)은 스모크에 포함하지 않는다.
+`make smoke`(= `lang-ai-agent smoke`): 실모델로 시나리오 1(조회) + 시나리오 2(발송 초안 → 인터럽트 → 콘솔 y/n) 재현. `SEND_MODE`는 `.env` 값과 무관하게 dry_run으로 **강제** — 실발송(live)은 스모크에 포함하지 않는다. `--mcp` 플래그 시 `mcp_servers.json`(또는 `MCP_SERVERS_PATH`)의 실 retail-mcp를 stdio로 물려 재현. 1회 비용은 모델 호출 3~4회(Sonnet 급에서 수 센트). 콘솔 루프 자체는 §4 "온보딩·설정"대로 대본 모델로 테스트하고, 실모델 실행은 사람이 결정한다(WORKFLOW §4).
 
 ## 6. 커버리지
 

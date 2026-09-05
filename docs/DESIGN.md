@@ -78,6 +78,7 @@ class ToolSpec(BaseModel):
 - SSE 이벤트 타입 (api/sse.py — `astream_events` 매핑): `token`(모델 텍스트 델타) · `tool_start`/`tool_end`(이름·소요) · `interrupt`(pending·초안) · `usage` · `done` · `error`. 이벤트 스키마는 Pydantic으로 고정하고 테스트한다.
 - 구현 메모(T6): `astream_events`는 그래프 인터럽트를 이벤트로 직접 노출하지 않는다 — 스트림이 자연 종료된 후 `aget_state(config).interrupts`를 별도로 확인해 `interrupt` 이벤트를 만든다. `tool_start`/`tool_end`의 상관관계 id는 모델의 실제 tool_call.id가 아니라 `astream_events`의 run_id(on_tool_start 시점엔 전자를 알 수 없어 후자로 대체).
 - 구현 메모(T7): `POST /threads`는 id만 발급하고, 스레드는 첫 `/messages`가 체크포인터에 첫 체크포인트를 쓸 때 생긴다 — "존재하지 않는 thread"는 `aget_state().values`가 비어 있는 경우(404). 대기 중 인터럽트가 없는 스레드의 `/approve`는 409. SSE 와이어 포맷은 `event:`에 이벤트 type, `data:`에 이벤트 JSON(sse-starlette). 앱은 `create_app(graph_factory, bearer_token)`으로 조립하며 체크포인터(async context manager)는 lifespan이 앱 수명 동안 연다; `make dev`는 `create_default_app()`을 uvicorn `--factory`로 띄워 import 시점엔 환경(.env → pydantic-settings)을 읽지 않는다.
+- 구현 메모(T11, 실모델 스모크에서 발견): Anthropic 등 실제 모델은 메시지·청크의 `content`를 `str`이 아니라 **콘텐츠 블록 리스트**(`[{"type": "text", "text": ...}]`)로 준다. `api/sse.py`의 `content_text()`가 두 형태 모두에서 텍스트만 뽑아 `token` 이벤트와 `/state`의 `last_message`를 만든다(`text` 블록만 취급, `tool_use` 블록은 무시). ScriptedChatModel은 `str`만 내므로 블록 리스트 대본 테스트로 회귀를 고정한다 — 이걸 놓쳐 1차 스모크는 token 이벤트가 0건이었다.
 
 ## 6. MCP 로더 (adapters/mcp_loader.py)
 
@@ -107,8 +108,8 @@ class ToolSpec(BaseModel):
 ## 8. 환경변수 (.env.example로 커밋)
 
 ```
-ANTHROPIC_API_KEY=
-MODEL=anthropic:claude-sonnet-4-5   # init_chat_model 형식, 스모크에서 티어 확정
+ANTHROPIC_API_KEY=                  # MODEL의 프로바이더에 맞는 키 하나 (§8.1 표)
+MODEL=anthropic:claude-sonnet-4-5   # init_chat_model "provider:model" 형식
 APP_BEARER_TOKEN=
 CHECKPOINT_DB_PATH=./data/checkpoints.db
 SEND_MODE=dry_run                   # dry_run | live — effect 어댑터의 2차 게이트
@@ -116,13 +117,31 @@ LANGSMITH_TRACING=false
 MCP_SERVERS_PATH=                   # 선택: mcp_servers.json 경로. 비우면 내장 도구만 (T9)
 ```
 
+### 8.1 온보딩 — 설치자가 자기 프로바이더 키를 넣는 경로 (T11)
+
+공개 패키지이므로 설치한 사람이 누구든 **자기 API 키**로 돌릴 수 있어야 한다. 키는 `.env`에만 존재하며(CLAUDE.md 가드레일 4) 아래 두 갈래로 들어온다.
+
+| 프로바이더(`MODEL` 접두) | 키 환경변수 | 기본 제안 모델 | SDK(기본 의존성) |
+|---|---|---|---|
+| `anthropic` (기본) | `ANTHROPIC_API_KEY` | `claude-sonnet-4-5` | langchain-anthropic |
+| `openai` | `OPENAI_API_KEY` | `gpt-5` | langchain-openai |
+| `xai` | `XAI_API_KEY` | `grok-4` | langchain-xai |
+| `google_genai` | `GOOGLE_API_KEY` | `gemini-2.5-pro` | langchain-google-genai |
+
+이 표의 단일 소스는 `adapters/llm.py`의 `PROVIDERS`다. 표에 없는 프로바이더(`init_chat_model`이 지원하는 다른 것)도 `MODEL`에 적으면 동작하지만, 기동 검사(아래 2)는 어느 환경변수를 봐야 할지 몰라 건너뛴다.
+
+1. **`lang-ai-agent init`** (`cli.py`, 콘솔 스크립트): 프로바이더 선택 → 키 입력(`getpass` — 화면·로그에 남지 않음) → 모델(기본 제안, Enter로 수락) → `APP_BEARER_TOKEN` 자동 생성(`secrets.token_urlsafe`) → `.env` 작성(권한 0600, `SEND_MODE=dry_run` 고정). 기존 `.env`는 `--force` 없이는 덮어쓰지 않는다. 대화형 입출력은 콘솔 함수 주입으로 테스트한다.
+2. **기동 검사(fail-fast)**: `create_default_app()`(= `make dev`, `lang-ai-agent serve`)은 먼저 `.env`를 `os.environ`으로 내보낸다(`load_dotenv` — pydantic-settings는 내보내지 않아 프로바이더 SDK가 `.env`만의 키를 못 봤음, 1차 스모크에서 발견). 그 다음 `MODEL`의 프로바이더 키가 비어 있으면 첫 모델 호출이 아니라 **기동 시점에** `ConfigError`로 실패하고 수정 방법(`lang-ai-agent init` 또는 `.env` 항목)을 안내한다. `APP_BEARER_TOKEN` 누락 같은 Settings 검증 실패도 같은 경로로 감싼다.
+3. **`lang-ai-agent serve [--host] [--port]`**: PyPI 설치자의 실행 진입점(Makefile 없이). `create_default_app()`을 uvicorn으로 띄우며 `ConfigError`는 스택트레이스 없이 메시지만 stderr에 내고 종료 코드 2.
+
 ## 9. 디렉터리 구조 (목표)
 
 ```
 lang_ai_agent/
   CLAUDE.md  README.md  Makefile  pyproject.toml  .env.example  mcp_servers.json.example
-  docs/  scripts/smoke.py
-  src/lang_ai_agent/{core,adapters,api}/
+  .github/workflows/ci.yml        # make check (T11)
+  docs/  scripts/smoke.py         # scripts/smoke.py = lang_ai_agent.smoke의 얇은 진입 래퍼
+  src/lang_ai_agent/{core,adapters,api}/  cli.py(init·serve·smoke)  smoke.py(실모델 스모크 로직)
   tests/{helpers,unit,component,e2e}/
 ```
 
@@ -132,4 +151,5 @@ lang_ai_agent/
 - **파이프라인**: TestPyPI로 먼저 검증(T13, 에이전트가 자율 진행 가능) → 정식 PyPI(T14).
 - **인증**: PyPI Trusted Publishing(OIDC, GitHub Actions) 사용 — 장기 API 토큰을 레포·시크릿에 저장하지 않는다.
 - **게이트**: 정식(prod) PyPI 배포 실행은 **사람 승인 후 트리거**한다(`docs/WORKFLOW.md` §4) — PyPI는 동일 버전 삭제 후 재업로드가 불가능해 `SEND_MODE=live`급 비가역 행동이기 때문. TestPyPI는 이 제약이 없어 CI 자동 배포 대상이 될 수 있다.
+- **콘솔 스크립트**(T11): `[project.scripts] lang-ai-agent = "lang_ai_agent.cli:main"`. 설치자는 `lang-ai-agent init`(온보딩, §8.1) → `lang-ai-agent serve`로 Makefile 없이 기동한다. `lang-ai-agent smoke [--mcp]`는 `scripts/smoke.py`(= `make smoke`)와 같은 실모델 스모크(사람 전용, API 비용).
 - **범위 밖**: npm(JS/TS 클라이언트 SDK) 배포는 이 저장소의 별도 패키지가 필요한 작업으로, v0.1 비목표(SPEC §3)다. 착수 시 이 섹션 갱신이 선행되어야 한다.
