@@ -85,7 +85,7 @@ jobs:
   # job waits in "Review deployments" until a human approves it — that click
   # is the WORKFLOW §4 release approval. Pre-release tags skip this job.
   pypi:
-    name: publish to PyPI (human-approved)
+    name: publish to PyPI (maintainer-approved)
     needs: [build, testpypi]
     if: needs.build.outputs.prerelease == 'false'
     runs-on: ubuntu-latest

@@ -3,7 +3,7 @@
 # fully resolve it even for textbook-correct, fully-concrete usage (same
 # finding as core/graph.py and tests/unit/test_checkpoint.py). Scoped to
 # this file; every other file keeps the check.
-"""Tool-error handling (docs/TESTING.md §4, "도구·에러") — built alongside the
+"""Tool-error handling (docs/TESTING.md §4, "Tools and errors") — built alongside the
 approval gate since safe_tools/effect_tools' error handling is inseparable
 from building those nodes correctly, even though T5's own completion
 criteria only require the approval-gate items.

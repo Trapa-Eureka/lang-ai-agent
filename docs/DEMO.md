@@ -1,52 +1,52 @@
-# DEMO — 60초 터미널 데모 시나리오 (T11)
+# DEMO — the 60-second terminal demo (T11)
 
-목적: SPEC §7의 "60초 데모(터미널 녹화) 1개". 실모델 호출 3~4회(Sonnet 급 수 센트), `SEND_MODE=dry_run`이라 실발송은 없다. README의 "60-second demo"는 이 문서의 요약본.
+Purpose: the "one 60-second demo (terminal recording)" of SPEC §7. Three to four real-model calls (cents on a Sonnet-class model); `SEND_MODE=dry_run`, so nothing is actually sent. The README's "60-second demo" is a summary of this document.
 
-## 준비 (녹화 전, 화면 밖)
+## Setup (before recording, off screen)
 
-- `uv sync && uv run lang-ai-agent init` 완료 — `.env`에 자기 키·`APP_BEARER_TOKEN`이 있는 상태.
-- 터미널 2개: **좌**(서버) / **우**(클라이언트). 우측 셸에 `TOKEN=<APP_BEARER_TOKEN>`, `BASE=http://127.0.0.1:8000` export. `jq` 설치.
-- 녹화 도구는 asciinema 또는 터미널 GIF. 폰트 크게, 우측 창 폭 ≥ 100칸(표가 안 잘리게).
+- `lang-ai-agent init` done (from a checkout: `uv sync && uv run lang-ai-agent init`) — `.env` holds your key and `APP_BEARER_TOKEN`.
+- Two terminals: **left** (server) / **right** (client). In the right shell export `TOKEN=<APP_BEARER_TOKEN>` and `BASE=http://127.0.0.1:8000`. `jq` installed.
+- Recording tool: asciinema or a terminal GIF. Large font; right window at least 100 columns wide so the table is not cut.
 
-## 타임라인
+## Timeline
 
-| 구간 | 창 | 무엇을 보여주나 |
+| Segment | Window | What it shows |
 |---|---|---|
-| 0–5s | 좌 | `uv run lang-ai-agent serve` → JSON 로그 1줄 + "Uvicorn running". (키가 없으면 여기서 즉시 `ConfigError`로 실패한다는 점을 한 마디) |
-| 5–15s | 우 | 스레드 생성 → 시나리오 1 질문 → `tool_start/tool_end`(check_stockout) 뒤 `token`이 표로 스트리밍 |
-| 15–35s | 우 | 시나리오 2 "위험 품목 재주문 메일 보내줘" → 제안 조회 → **`interrupt` 이벤트**(초안·수신자)로 스트림이 멈춤 |
-| 35–45s | 우 | `GET /state` → `awaiting_approval: true`, `pending.tool_name: send_reorder_email` |
-| 45–55s | 우 | `POST /approve {"approved": true}` → `tool_start/tool_end`(send_reorder_email, dry_run) → 결과 보고 `token` → `usage` → `done` |
-| 55–60s | 좌 | 로그에 node/tool/duration_ms가 한 줄 JSON으로 쌓인 모습 → 컷 |
+| 0–5s | left | `lang-ai-agent serve` → one JSON log line + "Uvicorn running". (One sentence: without a key this fails right here with a `ConfigError`) |
+| 5–15s | right | Create a thread → scenario 1 question → `tool_start/tool_end` (check_stockout), then `token` events stream the table |
+| 15–35s | right | Scenario 2 "send the reorder email for the at-risk items" → suggestions fetched → the stream stops at the **`interrupt` event** (draft and recipient) |
+| 35–45s | right | `GET /state` → `awaiting_approval: true`, `pending.tool_name: send_reorder_email` |
+| 45–55s | right | `POST /approve {"approved": true}` → `tool_start/tool_end` (send_reorder_email, dry_run) → result report as `token` → `usage` → `done` |
+| 55–60s | left | Logs piling up as one-line JSON with node/tool/duration_ms → cut |
 
-## 명령어 (우측 창, 복붙용)
+## Commands (right window, copy-paste)
 
 ```bash
 H=(-H "Authorization: Bearer $TOKEN" -H 'content-type: application/json')
 TID=$(curl -s -X POST "${H[@]}" $BASE/threads | jq -r .thread_id)
 
-# 시나리오 1 — 조회 (인터럽트 없음)
+# Scenario 1 — query (no interrupt)
 curl -sN -X POST "${H[@]}" $BASE/threads/$TID/messages \
-  -d '{"content":"본점(store id: main)에서 다음 주에 떨어질 품목이 뭐야? 표로 요약해줘."}'
+  -d '{"content":"Which items at the main store (store id: main) will stock out next week? Summarize as a table."}'
 
-# 시나리오 2 — 부작용 (승인 필수): interrupt 이벤트에서 스트림이 멈춘다
+# Scenario 2 — side effect (approval required): the stream stops at the interrupt event
 curl -sN -X POST "${H[@]}" $BASE/threads/$TID/messages \
-  -d '{"content":"위험 품목 재주문 메일을 ops@example.com으로 보내줘."}'
+  -d '{"content":"Send the reorder email for the at-risk items to ops@example.com."}'
 
 curl -s "${H[@]}" $BASE/threads/$TID/state | jq '{awaiting_approval, pending, usage}'
 
-# 승인 → dry_run 발송 → 결과 보고
+# Approve → dry-run send → result report
 curl -sN -X POST "${H[@]}" $BASE/threads/$TID/approve -d '{"approved": true}'
 ```
 
-거절 변형(시간이 남으면): `-d '{"approved": false, "comment": "수량을 절반으로 줄여줘"}'` → 발송 없이 수정 초안이 2차 `interrupt`로 다시 올라온다(SPEC §4-3).
+Rejection variant (if time allows): `-d '{"approved": false, "comment": "Cut the quantities in half"}'` → nothing is sent and a revised draft comes back as a second `interrupt` (SPEC §4-3).
 
-## 내레이션 (3문장)
+## Narration (three sentences)
 
-1. "조회 도구는 자유롭게 부르지만, 메일 발송 같은 부작용 도구는 그래프가 `interrupt()`에서 멈추고 사람의 승인을 기다립니다."
-2. "그 지점은 체크포인트로 저장되므로 서버를 재시작해도 같은 thread_id로 이어서 승인할 수 있습니다."
-3. "이 흐름 전체는 실제 LLM 없이 대본 모델로 결정론 테스트되고, 승인 게이트 우회 경로가 없다는 것은 그래프 구조 테스트가 증명합니다."
+1. "Read-only tools are called freely, but for a side-effecting tool like sending an email the graph stops at `interrupt()` and waits for a human to approve."
+2. "That point is saved as a checkpoint, so you can restart the server and continue the approval on the same thread_id."
+3. "This whole flow is tested deterministically with a scripted model and no real LLM, and a graph-structure test proves there is no path around the approval gate."
 
-## 재시작 내성 컷 (선택, +15s)
+## Restart-resilience cut (optional, +15s)
 
-시나리오 2의 `interrupt` 직후 좌측 창에서 서버를 Ctrl+C → 다시 `serve` → 우측에서 같은 `TID`로 `/approve`. SQLite 체크포인트가 살아 있어 발송까지 정상 재개된다(SPEC §4-4).
+Right after scenario 2's `interrupt`, Ctrl+C the server in the left window → `serve` again → `/approve` with the same `TID` on the right. The SQLite checkpoint is still there, so it resumes and completes the send (SPEC §4-4).

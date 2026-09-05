@@ -61,7 +61,7 @@ class SendReorderEmailArgs(BaseModel):
 
 
 # Fixed, deterministic sample data (docs/TESTING.md §2: fakes return a
-# "고정 응답" — a fixed response — not randomized data).
+# fixed response, not randomized data).
 _STOCKOUT_RISK: dict[str, list[StockoutRiskItem]] = {
     "main": [
         StockoutRiskItem(sku="SKU-100", name="Espresso Beans 1kg", days_until_stockout=3),

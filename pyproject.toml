@@ -1,6 +1,6 @@
 [project]
 name = "lang-ai-agent"
-version = "0.1.0"
+version = "0.1.1"
 description = "LangGraph-based production agent backend with a human-approval gate for effectful tools (Ops Copilot demo)"
 authors = [
     { name = "Trapa-Eureka", email = "son199@hanmail.net" }
