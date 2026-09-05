@@ -59,9 +59,11 @@
 - 완료 기준: [x] 파싱·매핑 단위 테스트(실 프로세스 없음) [x] 설정 파일 부재 시 수정 방법 담긴 에러 [x] check 통과
 - 설계 메모: 파싱(Pydantic, `extra="forbid"` — `aproval` 같은 오타가 조용히 "전부 effect"로 둔갑하지 않게) / 매핑(순수) / 연결(`load_mcp_tool_specs`, 클라이언트 팩토리 주입 가능 → 테스트는 페이크)의 3층. 서버별 `get_tools(server_name=)`로 정책을 정확히 적용. `core/tools_spec.merge_tool_specs`가 내장·MCP·서버 간 **도구명 중복을 기동 시점에 거부**(그래프가 이름으로 도구를 찾아서 나중 것이 앞 것의 승인 요구를 조용히 덮어쓰기 때문). v0.1은 stdio 전용. 앱 배선: `MCP_SERVERS_PATH`(선택, DESIGN §8에 추가) 설정 시 기동 때 로드·병합 — T11 smoke `--mcp`의 진입점. 이 버전의 `MultiServerMCPClient`는 컨텍스트 매니저가 제거되어(호출마다 세션) 로더가 붙잡을 수명이 없음.
 
-### T10 — e2e-mock + 커버리지 · 상태: TODO · 의존: T7, T8, T9
+### T10 — e2e-mock + 커버리지 · 상태: DONE(2026-09-05) · 의존: T7, T8, T9
 - 목표: SPEC §4 시나리오 1~4를 API 레벨 e2e-mock으로(재시작 내성 포함), 커버리지 리포트.
-- 완료 기준: [ ] 4개 시나리오 전부 통과 [ ] core ≥ 90% 리포트 첨부 [ ] check 통과
+- 완료 기준: [x] 4개 시나리오 전부 통과 [x] core ≥ 90% 리포트 첨부 [x] check 통과
+- 시나리오(`tests/e2e/test_scenarios.py`, httpx ASGI로 실제 앱 관통): 1 조회(인터럽트 0, usage 합계) · 2 승인 발송(safe 조회 → 인터럽트에 초안·수신자 → /approve → 발송 → 결과 보고, dry_run 2차 게이트) · 3a 거절→정중한 종료 · 3b 거절 코멘트→**수정 초안 재제시(2차 인터럽트)**→승인→v2만 발송 · 4 재시작 내성(임시 SQLite: 앱·그래프·체크포인터 완전 폐기 후 새 앱에서 같은 thread_id로 /state 복원·/approve 발송) · 스레드 격리(TESTING §4).
+- 커버리지 리포트(첨부): `make test`가 `coverage report --fail-under=90 --include='src/lang_ai_agent/core/*'`로 게이트. 결과 — core/graph.py 130 stmts/18 br 100%, core/state.py 16/0 100%, core/tools_spec.py 14/2 100%, **core 합계 160 stmts/20 br, miss 0 → 100%**; 프로젝트 전체 546 stmts/68 br 100%, 139 passed.
 
 ### T11 — 스모크 + 포트폴리오 준비 · 상태: TODO · 의존: T10
 - 목표: `scripts/smoke.py`(실모델 시나리오1 + 콘솔 승인, `--mcp`로 실 retail-mcp), 영어 README 초안(내부 docs는 한국어 유지), 60초 데모 스크립트 시나리오, GitHub Actions `ci.yml`(make check).

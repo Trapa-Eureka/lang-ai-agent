@@ -4,6 +4,7 @@ check: lint typecheck test
 
 test:
 	uv run pytest
+	uv run coverage report --fail-under=90 --include='src/lang_ai_agent/core/*'
 
 lint:
 	uv run ruff check .

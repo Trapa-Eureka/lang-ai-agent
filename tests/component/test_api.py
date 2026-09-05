@@ -16,7 +16,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-import httpx
 import pytest
 from fastapi import FastAPI
 from langchain_core.messages import AIMessage
@@ -24,10 +23,11 @@ from langchain_core.messages import AIMessage
 from lang_ai_agent.api.app import create_app, create_default_app
 from lang_ai_agent.api.auth import require_bearer_token
 from tests.component.conftest import GraphHarness
+from tests.helpers.http_client import AUTH_HEADERS as AUTH
+from tests.helpers.http_client import TEST_TOKEN as TOKEN
+from tests.helpers.http_client import api_client as _client
+from tests.helpers.http_client import read_sse as _stream_events
 from tests.helpers.scripted_chat_model import script
-
-TOKEN = "test-token"
-AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 _SEND_EMAIL_SCRIPT = (
     script()
@@ -48,36 +48,6 @@ def _app_for(script_messages: Sequence[AIMessage]) -> tuple[FastAPI, GraphHarnes
         yield harness.graph
 
     return create_app(graph_factory, bearer_token=TOKEN), harness
-
-
-@asynccontextmanager
-async def _client(app: FastAPI) -> AsyncGenerator[httpx.AsyncClient, None]:
-    # httpx's ASGITransport doesn't run lifespan on its own — enter it
-    # explicitly so app.state.graph exists, exactly as uvicorn would.
-    async with app.router.lifespan_context(app):
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            yield client
-
-
-async def _stream_events(
-    client: httpx.AsyncClient, method: str, url: str, body: dict[str, Any]
-) -> list[dict[str, Any]]:
-    """Consume an SSE response into [{"event": ..., "data": {...}}, ...]."""
-    events: list[dict[str, Any]] = []
-    current: dict[str, Any] = {}
-    async with client.stream(method, url, json=body, headers=AUTH) as response:
-        assert response.status_code == 200
-        assert response.headers["content-type"].startswith("text/event-stream")
-        async for line in response.aiter_lines():
-            if line.startswith("event:"):
-                current["event"] = line.removeprefix("event:").strip()
-            elif line.startswith("data:"):
-                current["data"] = json.loads(line.removeprefix("data:").strip())
-            elif not line and current:
-                events.append(current)
-                current = {}
-    return events
 
 
 # --- 1. auth ----------------------------------------------------------------

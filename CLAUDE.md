@@ -16,7 +16,7 @@ LangGraph 기반 프로덕션 에이전트 백엔드 (Ops Copilot 데모). 스�
 
 ```bash
 make check        # ruff check + pyright + pytest — 태스크 완료의 필수 게이트
-make test         # pytest
+make test         # pytest + core/ 커버리지 ≥90% 게이트(SPEC §5)
 make lint         # ruff check + format --check
 make typecheck    # pyright
 make dev          # uvicorn 개발 서버

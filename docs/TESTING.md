@@ -31,29 +31,29 @@
 ## 4. 필수 엣지 케이스 체크리스트
 
 **그래프·승인 게이트**
-- [ ] 구조 불변식: 컴파일된 그래프에서 effect_tools로 들어오는 엣지가 approval 경유뿐임을 검증 (get_graph 순회)
-- [ ] 인터럽트 페이로드에 pending 요약·초안 포함, 대용량 원본 미포함
-- [ ] resume 값(`approved/comment`)이 interrupt() 반환값으로 정확히 전달
-- [ ] 거절 comment가 ToolMessage로 모델에 전달됨 (대본으로 후속 응답 검증)
-- [ ] SEND_MODE=dry_run이면 승인돼도 MockEffects가 실발송 경로를 타지 않음 (이중 게이트)
+- [x] 구조 불변식: 컴파일된 그래프에서 effect_tools로 들어오는 엣지가 approval 경유뿐임을 검증 (get_graph 순회)
+- [x] 인터럽트 페이로드에 pending 요약·초안 포함, 대용량 원본 미포함
+- [x] resume 값(`approved/comment`)이 interrupt() 반환값으로 정확히 전달
+- [x] 거절 comment가 ToolMessage로 모델에 전달됨 (대본으로 후속 응답 검증)
+- [x] SEND_MODE=dry_run이면 승인돼도 MockEffects가 실발송 경로를 타지 않음 (이중 게이트)
 
 **영속·재시작**
-- [ ] 임시파일 AsyncSqliteSaver: 인터럽트 상태에서 그래프 객체 폐기 → 재컴파일(동일 DB·thread_id) → approve 재개 성공
-- [ ] 스레드 격리: 두 thread_id 병행 실행, 상태 혼입 없음
+- [x] 임시파일 AsyncSqliteSaver: 인터럽트 상태에서 그래프 객체 폐기 → 재컴파일(동일 DB·thread_id) → approve 재개 성공
+- [x] 스레드 격리: 두 thread_id 병행 실행, 상태 혼입 없음
 
 **도구·에러**
-- [ ] 도구 예외 → 에러 ToolMessage로 변환, 그래프는 죽지 않고 agent가 대본대로 사과·대안 제시
-- [ ] 미등록 도구 호출 대본 → 명확한 실패 메시지
-- [ ] MCP 로더: 설정 파싱·approval 매핑 단위 테스트 (설정 누락 도구 → effect 기본값)
+- [x] 도구 예외 → 에러 ToolMessage로 변환, 그래프는 죽지 않고 agent가 대본대로 사과·대안 제시
+- [x] 미등록 도구 호출 대본 → 명확한 실패 메시지
+- [x] MCP 로더: 설정 파싱·approval 매핑 단위 테스트 (설정 누락 도구 → effect 기본값)
 
 **API·SSE (httpx ASGI)**
-- [ ] 인증 없음/틀림 → 401
-- [ ] messages 스트림 이벤트 순서: token* → tool_start/end* → (interrupt | usage → done)
-- [ ] interrupt 후 GET state에 pending 노출, approve 후 done까지 스트림
-- [ ] 존재하지 않는 thread_id → 수정 방법 담긴 404
+- [x] 인증 없음/틀림 → 401
+- [x] messages 스트림 이벤트 순서: token* → tool_start/end* → (interrupt | usage → done)
+- [x] interrupt 후 GET state에 pending 노출, approve 후 done까지 스트림
+- [x] 존재하지 않는 thread_id → 수정 방법 담긴 404
 
 **usage**
-- [ ] 다중 모델 호출 누적 집계가 대본의 고정 usage 합과 일치
+- [x] 다중 모델 호출 누적 집계가 대본의 고정 usage 합과 일치
 
 ## 5. 수동 스모크 (사람 전용 — scripts/smoke.py)
 
@@ -62,3 +62,4 @@
 ## 6. 커버리지
 
 - `src/lang_ai_agent/core/` 90% 이상 (pytest-cov, T10에서 리포트). adapters는 스모크 보완.
+- 2026-09-05(T10): `make test`가 `coverage report --fail-under=90 --include='src/lang_ai_agent/core/*'`로 이 기준을 강제한다. 현재 core 100%(graph 130/18, state 16/0, tools_spec 14/2 — 누락 0), 프로젝트 전체 100%. §4 체크리스트는 전 항목 커버(그래프·승인 게이트 T5, 영속·재시작 T10 e2e, 도구·에러 T5/T9, API·SSE T7, usage T8).
