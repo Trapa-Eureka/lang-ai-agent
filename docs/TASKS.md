@@ -79,15 +79,16 @@
 
 ### T13 — PyPI 패키징 · 상태: TODO · 의존: T11
 - 목표: `pyproject.toml` 배포 메타데이터(description/license/classifiers/urls/authors) 정비, `uv build`로 sdist+wheel 생성 검증, TestPyPI 시험 배포. 콘솔 스크립트(`[project.scripts] lang-ai-agent`)는 T11에서 선반영됨 — 설치 후 `lang-ai-agent init`이 동작하는지 TestPyPI 설치 확인에 포함.
-- 완료 기준: [ ] `uv build` 성공 산출물(sdist+wheel) 확인 [ ] TestPyPI 업로드 성공 [ ] `--index-url` TestPyPI로 설치·임포트 확인 [ ] check 통과
+- 선행 결정(2026-09-05, 문서 선행 완료 — `docs/RELEASE.md`): 라이선스 **MIT** → `LICENSE` 파일 추가를 T15에서 T13으로 당김. 인증은 **Trusted Publishing** → `.github/workflows/publish.yml`(build + `testpypi` job)을 T13에서 작성. TestPyPI 업로드는 사람이 RELEASE.md §1(계정·pending publisher·GitHub Environments)을 마친 뒤 `v0.1.0rcN` 태그로 수행. `uv build`는 2026-09-05 현재 상태로 이미 성공(누락은 METADATA의 License/Classifier/Project-URL/Keywords뿐), `src/` 코드 변경 없음.
+- 완료 기준: [ ] `uv build` 성공 산출물(sdist+wheel) 확인 [ ] `LICENSE`(MIT)·메타데이터가 wheel METADATA에 반영 [ ] `publish.yml` 문법 검증 [ ] TestPyPI 업로드 성공 [ ] `--index-url` TestPyPI로 설치·`lang-ai-agent --help` 확인 [ ] check 통과
 
 ### T14 — PyPI 정식 배포 워크플로 · 상태: TODO · 의존: T13
-- 목표: GitHub Actions + Trusted Publishing(OIDC)으로 태그 푸시 시 정식 PyPI 배포 파이프라인 구성. **정식 배포 실행은 매번 사람 승인 후 트리거**(WORKFLOW §4).
-- 완료 기준: [ ] 워크플로 yml 문법 검증 [ ] 버전 태그 규칙 문서화 [ ] 사람 승인 하 정식 배포 1회 성공 [ ] check 통과
+- 목표: GitHub Actions + Trusted Publishing(OIDC)으로 태그 푸시 시 정식 PyPI 배포 파이프라인 구성. **정식 배포 실행은 매번 사람 승인 후 트리거**(WORKFLOW §4). 구현은 T13의 `publish.yml`에 `pypi` job 추가(환경 `pypi`의 Required reviewers = 사람 승인, 정식 태그에만 실행). 태그·버전 규칙은 `docs/RELEASE.md` §3에 선문서화(2026-09-05).
+- 완료 기준: [ ] 워크플로 yml 문법 검증 [x] 버전 태그 규칙 문서화(RELEASE.md §3) [ ] 사람 승인 하 정식 배포 1회 성공 [ ] check 통과
 
 ### T15 — 최종 통합 공개 · 상태: TODO · 의존: T11, T14
-- 목표: 루트 README에 PyPI 배지·설치 커맨드 추가, LICENSE 파일 확정, GitHub 공개 체크리스트(SPEC §7) 전항목 점검.
-- 완료 기준: [ ] README에 PyPI 배지 + `pip install`/`uv add` 안내 [ ] LICENSE 파일 추가 [ ] SPEC §7 기준 전항목 충족 확인
+- 목표: 루트 README에 PyPI 배지·설치 커맨드 추가, GitHub 공개 체크리스트(SPEC §7) 전항목 점검. LICENSE는 MIT로 확정되어 T13에서 추가되므로 여기서는 존재·저작권자 표기만 확인.
+- 완료 기준: [ ] README에 PyPI 배지 + `pip install`/`uv add` 안내 [ ] LICENSE(MIT) 존재·저작권자 확인 [ ] SPEC §7 기준 전항목 충족 확인
 
 ---
 
