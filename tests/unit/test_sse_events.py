@@ -12,6 +12,7 @@ from lang_ai_agent.api.sse import (
     ToolEndEvent,
     ToolStartEvent,
     UsageEvent,
+    content_text,
 )
 from lang_ai_agent.core.state import PendingAction, Usage
 
@@ -51,3 +52,13 @@ def test_discriminator_rejects_an_unknown_event_type() -> None:
 
 def test_done_event_carries_no_extra_fields_by_default() -> None:
     assert DoneEvent().model_dump() == {"type": "done"}
+
+
+def test_content_text_reads_str_and_anthropic_style_block_lists() -> None:
+    assert content_text("plain") == "plain"
+    assert (
+        content_text([{"type": "text", "text": "Hel"}, {"type": "text", "text": "lo"}]) == "Hello"
+    )
+    assert content_text([{"type": "tool_use", "id": "c1", "name": "t", "input": {}}]) == ""
+    assert content_text(["a", {"type": "text", "text": "b"}, {"type": "text"}]) == "ab"
+    assert content_text([]) == ""

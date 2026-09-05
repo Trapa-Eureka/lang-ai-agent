@@ -6,6 +6,7 @@ also validate against the SSEEvent schema itself (T1) — the mapper's whole
 job is to stay inside that contract.
 """
 
+from langchain_core.messages import AIMessage
 from pydantic import TypeAdapter
 
 from lang_ai_agent.api.sse import (
@@ -137,6 +138,26 @@ async def test_rejected_resume_never_streams_a_tool_event(make_harness: MakeHarn
     assert "tool_start" not in kinds
     assert "tool_end" not in kinds
     assert kinds == ["token", "usage", "done"]
+
+
+async def test_block_list_content_still_streams_token_events(make_harness: MakeHarness) -> None:
+    """Anthropic models deliver content as a list of blocks, not a str — the
+    first real-model smoke streamed zero token events because the mapper
+    only handled str. A scripted turn in the block-list shape pins the fix.
+    """
+    harness: GraphHarness = make_harness(
+        [
+            AIMessage(
+                content=[{"type": "text", "text": "All good"}, {"type": "text", "text": " here"}]
+            )
+        ]
+    )
+
+    events = await harness.sse_run("hi")
+
+    assert "".join(e.content for e in events if isinstance(e, TokenEvent)) == "All good here"
+    assert [e.type for e in events][-2:] == ["usage", "done"]
+    assert (await harness.state_values())["messages"][-1].content[0]["type"] == "text"
 
 
 async def test_a_model_error_becomes_a_single_error_event(make_harness: MakeHarness) -> None:

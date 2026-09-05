@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    name: make check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      # --locked: fail if uv.lock is out of date with pyproject.toml instead
+      # of silently re-resolving — the lockfile is part of the review.
+      - run: uv sync --locked
+
+      # ruff check + format --check, pyright strict, pytest with the core
+      # coverage gate — the same gate every task passes locally. No API key
+      # is needed: the tests make zero network calls (CLAUDE.md guardrail 2).
+      - run: make check

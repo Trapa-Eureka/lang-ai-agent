@@ -11,6 +11,7 @@ driven through httpx's ASGI transport, no server process).
 """
 
 import json
+import os
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -20,7 +21,7 @@ import pytest
 from fastapi import FastAPI
 from langchain_core.messages import AIMessage
 
-from lang_ai_agent.api.app import create_app, create_default_app
+from lang_ai_agent.api.app import ConfigError, create_app, create_default_app
 from lang_ai_agent.api.auth import require_bearer_token
 from tests.component.conftest import GraphHarness
 from tests.helpers.http_client import AUTH_HEADERS as AUTH
@@ -204,6 +205,7 @@ async def test_create_default_app_wires_settings_and_a_sqlite_checkpointer(
     """
     db_path = tmp_path / "data" / "checkpoints.db"
     monkeypatch.setenv("APP_BEARER_TOKEN", "from-env")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-a-real-key")  # startup check, no call
     monkeypatch.setenv("CHECKPOINT_DB_PATH", str(db_path))
     monkeypatch.setenv("SEND_MODE", "dry_run")
 
@@ -221,6 +223,60 @@ async def test_create_default_app_wires_settings_and_a_sqlite_checkpointer(
     assert db_path.exists()  # the lifespan really opened AsyncSqliteSaver there
 
 
+async def test_create_default_app_exports_dotenv_to_the_process_environment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Provider clients read their API key from os.environ, and
+    pydantic-settings never exports .env there — so a .env-only
+    ANTHROPIC_API_KEY silently never reached the model. Found by the first
+    real-model smoke; this pins the fix (load_dotenv at startup).
+    """
+    monkeypatch.chdir(tmp_path)
+    for var in ("ANTHROPIC_API_KEY", "APP_BEARER_TOKEN", "CHECKPOINT_DB_PATH"):
+        monkeypatch.delenv(var, raising=False)
+    (tmp_path / ".env").write_text(
+        "APP_BEARER_TOKEN=from-dotenv\nANTHROPIC_API_KEY=sk-test-not-a-real-key\n"
+        "CHECKPOINT_DB_PATH=cp.db\n"
+    )
+
+    app = create_default_app()
+
+    assert os.environ["ANTHROPIC_API_KEY"] == "sk-test-not-a-real-key"  # reached the process env
+    async with _client(app) as client:
+        created = await client.post("/threads", headers={"Authorization": "Bearer from-dotenv"})
+    assert created.status_code == 200
+
+
+def test_create_default_app_fails_fast_when_the_provider_key_is_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """DESIGN §8.1: a missing key is a startup ConfigError naming the env var
+    and the fix — not an SSE `error` on the first message.
+    """
+    monkeypatch.chdir(tmp_path)  # no .env
+    monkeypatch.setenv("APP_BEARER_TOKEN", "t")
+    monkeypatch.setenv("MODEL", "openai:gpt-5")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    with pytest.raises(ConfigError, match="OPENAI_API_KEY") as exc_info:
+        create_default_app()
+
+    assert "lang-ai-agent init" in str(exc_info.value)
+
+
+def test_create_default_app_fails_fast_when_the_bearer_token_is_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("APP_BEARER_TOKEN", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-a-real-key")
+
+    with pytest.raises(ConfigError, match="APP_BEARER_TOKEN") as exc_info:
+        create_default_app()
+
+    assert "lang-ai-agent init" in str(exc_info.value)
+
+
 async def test_create_default_app_loads_mcp_tools_when_a_path_is_configured(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -235,6 +291,7 @@ async def test_create_default_app_loads_mcp_tools_when_a_path_is_configured(
     mcp_file = tmp_path / "mcp_servers.json"
     mcp_file.write_text(json.dumps({"retail": {"command": "npx", "args": ["server"]}}))
     monkeypatch.setenv("APP_BEARER_TOKEN", "from-env")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-a-real-key")
     monkeypatch.setenv("CHECKPOINT_DB_PATH", str(tmp_path / "cp.db"))
     monkeypatch.setenv("MCP_SERVERS_PATH", str(mcp_file))
 

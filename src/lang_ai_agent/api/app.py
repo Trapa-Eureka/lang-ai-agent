@@ -15,9 +15,12 @@ Two ways to get an app:
 
 - `create_app(graph_factory, bearer_token)` — explicit injection. Tests pass
   a ScriptedChatModel-backed graph and a known token.
-- `create_default_app()` — reads `Settings` (`.env`) and opens the real
-  model + AsyncSqliteSaver. `make dev` runs this through uvicorn's
-  `--factory` flag so nothing touches the environment at import time.
+- `create_default_app()` — reads `Settings` (`.env`) via `load_settings()`,
+  which fails fast with a `ConfigError` on a missing bearer token or
+  provider key (DESIGN §8.1), then opens the real model + AsyncSqliteSaver.
+  `make dev` runs this through uvicorn's `--factory` flag and
+  `lang-ai-agent serve` calls it directly, so nothing touches the
+  environment at import time.
 """
 
 import uuid
@@ -26,11 +29,12 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from langchain_core.messages import HumanMessage
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sse_starlette.event import ServerSentEvent
 from sse_starlette.sse import EventSourceResponse
@@ -38,11 +42,11 @@ from sse_starlette.sse import EventSourceResponse
 from lang_ai_agent.adapters.builtin_tools import build_builtin_tool_specs
 from lang_ai_agent.adapters.checkpoint import build_sqlite_checkpointer, thread_config
 from lang_ai_agent.adapters.effects import Effects, SendMode
-from lang_ai_agent.adapters.llm import build_chat_model
+from lang_ai_agent.adapters.llm import build_chat_model, missing_key_error
 from lang_ai_agent.adapters.mcp_loader import load_mcp_servers_config, load_mcp_tool_specs
 from lang_ai_agent.adapters.observability import apply_langsmith_tracing, configure_logging
 from lang_ai_agent.api.auth import require_bearer_token
-from lang_ai_agent.api.sse import SSEEvent, stream_sse_events
+from lang_ai_agent.api.sse import SSEEvent, content_text, stream_sse_events
 from lang_ai_agent.core.graph import build_graph
 from lang_ai_agent.core.state import AgentState, PendingAction, Usage
 from lang_ai_agent.core.tools_spec import merge_tool_specs
@@ -63,6 +67,41 @@ class Settings(BaseSettings):
     langsmith_tracing: bool = False
     mcp_servers_path: str | None = None
     """Optional path to an `mcp_servers.json`; unset means built-in tools only."""
+
+
+class ConfigError(ValueError):
+    """`.env` / the environment can't start the server. The message names the
+    cause and the fix (CLAUDE.md's error convention); `lang-ai-agent serve`
+    prints it without a traceback.
+    """
+
+
+def load_settings() -> Settings:
+    """`.env` → process environment → validated `Settings`, failing fast on
+    what the first request would otherwise trip over (DESIGN §8.1).
+    """
+    # Export .env into the process environment *before* anything reads it.
+    # pydantic-settings only loads .env into our Settings object; provider
+    # clients (langchain-anthropic, -openai, ...) read their API key from
+    # os.environ, so without this a .env-only ANTHROPIC_API_KEY silently
+    # never reached the model — caught by the first real-model smoke. Real
+    # environment variables still win: load_dotenv never overrides them.
+    load_dotenv(".env")
+    try:
+        settings = Settings()  # pyright: ignore[reportCallIssue] - app_bearer_token comes from the env
+    except ValidationError as e:
+        fields = ", ".join(
+            ".".join(str(part) for part in error["loc"]).upper() for error in e.errors()
+        )
+        raise ConfigError(
+            f"Missing or invalid settings: {fields}.\n"
+            "Fix: run `lang-ai-agent init` to write .env interactively, or copy "
+            ".env.example to .env and fill in the blanks."
+        ) from e
+    problem = missing_key_error(settings.model)
+    if problem is not None:
+        raise ConfigError(problem)
+    return settings
 
 
 # --- request / response models --------------------------------------------
@@ -157,13 +196,13 @@ def create_app(graph_factory: GraphFactory, bearer_token: str) -> FastAPI:
     async def get_state(thread_id: str, request: Request) -> ThreadState:
         state = await existing_state(graph_of(request), thread_id)
         messages = state.values.get("messages", [])
-        last = messages[-1].content if messages else None
+        last_text = content_text(messages[-1].content) if messages else ""
         interrupts = state.interrupts
         pending = interrupts[0].value["action"] if interrupts else state.values.get("pending")
         return ThreadState(
             thread_id=thread_id,
             message_count=len(messages),
-            last_message=last if isinstance(last, str) else None,
+            last_message=last_text or None,
             pending=pending,
             usage=state.values.get("usage", Usage()),
             awaiting_approval=bool(interrupts),
@@ -191,7 +230,10 @@ def create_app(graph_factory: GraphFactory, bearer_token: str) -> FastAPI:
 
 
 @asynccontextmanager
-async def _open_default_graph(settings: Settings) -> AsyncGenerator[AgentGraph, None]:
+async def open_default_graph(settings: Settings) -> AsyncGenerator[AgentGraph, None]:
+    """The production graph for `settings`: real model, built-in (+ MCP)
+    tools, AsyncSqliteSaver. Shared by the app and the real-model smoke.
+    """
     effects = Effects(send_mode=settings.send_mode)
     model = build_chat_model(settings.model)
     tool_specs = build_builtin_tool_specs(effects)
@@ -206,13 +248,14 @@ async def _open_default_graph(settings: Settings) -> AsyncGenerator[AgentGraph, 
 
 
 def create_default_app() -> FastAPI:
-    """The `make dev` entry point: `Settings` from `.env`, real model,
-    AsyncSqliteSaver. Reads the environment only when called, never on import.
+    """The `make dev` / `lang-ai-agent serve` entry point: `Settings` from
+    `.env` (fail-fast, see `load_settings`), real model, AsyncSqliteSaver.
+    Reads the environment only when called, never on import.
     """
-    settings = Settings()  # pyright: ignore[reportCallIssue] - app_bearer_token comes from the env
+    settings = load_settings()
     configure_logging()
     apply_langsmith_tracing(settings.langsmith_tracing)
     return create_app(
-        graph_factory=lambda: _open_default_graph(settings),
+        graph_factory=lambda: open_default_graph(settings),
         bearer_token=settings.app_bearer_token,
     )

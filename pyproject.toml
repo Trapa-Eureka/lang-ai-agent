@@ -13,14 +13,21 @@ dependencies = [
     "langchain>=1.4.0",
     "langchain-anthropic>=1.7.1",
     "langchain-core>=1.6.1",
+    "langchain-google-genai>=4.4.0",
     "langchain-mcp-adapters>=0.3.2",
+    "langchain-openai>=1.6.0",
+    "langchain-xai>=1.3.0",
     "langgraph>=1.2.11",
     "langgraph-checkpoint-sqlite>=3.1.1",
     "pydantic>=2",
     "pydantic-settings>=2.15.0",
+    "python-dotenv>=1.2.3",
     "sse-starlette>=3.4.10",
     "uvicorn[standard]>=0.52.4",
 ]
+
+[project.scripts]
+lang-ai-agent = "lang_ai_agent.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.12.9,<0.13.0"]
@@ -51,7 +58,7 @@ select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
 known-first-party = ["lang_ai_agent"]
 
 [tool.pyright]
-include = ["src", "tests"]
+include = ["src", "tests", "scripts"]
 exclude = ["tests/typecheck_fixtures"]
 typeCheckingMode = "strict"
 pythonVersion = "3.12"
@@ -81,4 +88,4 @@ source = ["src/lang_ai_agent"]
 branch = true
 
 [tool.coverage.report]
-exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:"]
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", 'if __name__ == "__main__":']

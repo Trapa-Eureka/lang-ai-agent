@@ -20,7 +20,9 @@ make test         # pytest + core/ 커버리지 ≥90% 게이트(SPEC §5)
 make lint         # ruff check + format --check
 make typecheck    # pyright
 make dev          # uvicorn 개발 서버
-make smoke        # 실 모델·실 MCP 수동 스모크 (사람 전용)
+make smoke        # 실 모델·실 MCP 수동 스모크 (사람 전용, = lang-ai-agent smoke)
+uv run lang-ai-agent init    # 온보딩: 프로바이더 선택 + API 키 → .env (설치자용, DESIGN §8.1)
+uv run lang-ai-agent serve   # .env로 기동 — 키·토큰 누락은 기동 시점에 ConfigError
 ```
 
 ## 소스 레이아웃
@@ -28,10 +30,13 @@ make smoke        # 실 모델·실 MCP 수동 스모크 (사람 전용)
 ```
 src/lang_ai_agent/
   core/        # state.py(AgentState·Pydantic 모델), graph.py(StateGraph), tools_spec.py(도구 분류 규약)
-  adapters/    # llm.py(모델 팩토리), checkpoint.py, mcp_loader.py, effects.py(발송 등 부작용 구현)
-  api/         # app.py(FastAPI 조립), sse.py(이벤트 매핑), auth.py
+  adapters/    # llm.py(모델 팩토리·프로바이더 표 PROVIDERS), checkpoint.py, mcp_loader.py, effects.py(발송 등 부작용 구현)
+  api/         # app.py(FastAPI 조립·Settings·ConfigError), sse.py(이벤트 매핑·content_text), auth.py
+  cli.py       # 콘솔 스크립트 lang-ai-agent: init(온보딩) / serve / smoke
+  smoke.py     # 실모델 스모크 로직 — 콘솔 루프는 대본 모델로 테스트
 tests/         # helpers/(ScriptedChatModel, fake tools, fixed clock 포함), 단위·컴포넌트·e2e-mock
-scripts/       # smoke.py — 사람 전용
+scripts/       # smoke.py — 사람 전용 (lang_ai_agent.smoke의 얇은 래퍼)
+.github/workflows/ci.yml   # push·PR마다 make check
 mcp_servers.json.example   # MCP 도구 연결 설정 예시
 ```
 
@@ -40,7 +45,8 @@ mcp_servers.json.example   # MCP 도구 연결 설정 예시
 - pyright strict에서 `# type: ignore`는 사유 주석 없이는 금지. `Any` 반환 함수 금지, 경계(요청·모델 출력·MCP 응답)는 Pydantic 파싱.
 - 기본 async. 그래프 노드는 얇게 — 로직은 순수 함수로 빼서 단위 테스트 가능하게.
 - **상태(State)에 대용량 페이로드 저장 금지** — 상태는 매 체크포인트마다 직렬화되므로 메시지·최소 메타만 담고, 큰 결과물은 요약해서 넣는다.
-- 에러 메시지는 원인 + 수정 방법까지 (예: `mcp_servers.json이 없습니다. mcp_servers.json.example을 복사해 서버 경로를 채우세요.`).
+- 에러 메시지는 원인 + 수정 방법까지 (예: `mcp_servers.json이 없습니다. mcp_servers.json.example을 복사해 서버 경로를 채우세요.`). 설정 문제는 첫 요청이 아니라 **기동 시점**에 `ConfigError`로.
+- 모델 `content`는 `str` **또는** 콘텐츠 블록 리스트(실모델은 리스트) — 텍스트는 `api/sse.py`의 `content_text()`로 읽는다. `isinstance(content, str)`만 보면 실모델에서 조용히 빈 문자열이 된다.
 - 커밋 메시지: `T{n}: Summary`. **영어로 작성** (레포는 글로벌 계약 시장 대상 포트폴리오이므로 커밋 로그도 영어). 문서 본문은 한국어 유지.
 
 ## 가드레일 (위반 금지)
@@ -63,3 +69,4 @@ mcp_servers.json.example   # MCP 도구 연결 설정 예시
 
 - 2026-09-04: 최초 작성.
 - 2026-09-04: 커밋 메시지 언어를 영어로 확정(T12 커밋 메시지 수정 계기).
+- 2026-09-05: 온보딩 CLI(`lang-ai-agent init/serve/smoke`)·프로바이더 표·content_text 규칙 추가(T11 실모델 스모크 계기).

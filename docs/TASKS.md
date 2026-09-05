@@ -65,16 +65,19 @@
 - 시나리오(`tests/e2e/test_scenarios.py`, httpx ASGI로 실제 앱 관통): 1 조회(인터럽트 0, usage 합계) · 2 승인 발송(safe 조회 → 인터럽트에 초안·수신자 → /approve → 발송 → 결과 보고, dry_run 2차 게이트) · 3a 거절→정중한 종료 · 3b 거절 코멘트→**수정 초안 재제시(2차 인터럽트)**→승인→v2만 발송 · 4 재시작 내성(임시 SQLite: 앱·그래프·체크포인터 완전 폐기 후 새 앱에서 같은 thread_id로 /state 복원·/approve 발송) · 스레드 격리(TESTING §4).
 - 커버리지 리포트(첨부): `make test`가 `coverage report --fail-under=90 --include='src/lang_ai_agent/core/*'`로 게이트. 결과 — core/graph.py 130 stmts/18 br 100%, core/state.py 16/0 100%, core/tools_spec.py 14/2 100%, **core 합계 160 stmts/20 br, miss 0 → 100%**; 프로젝트 전체 546 stmts/68 br 100%, 139 passed.
 
-### T11 — 스모크 + 포트폴리오 준비 · 상태: TODO · 의존: T10
+### T11 — 스모크 + 포트폴리오 준비 · 상태: DONE(2026-09-05) · 의존: T10
 - 목표: `scripts/smoke.py`(실모델 시나리오1 + 콘솔 승인, `--mcp`로 실 retail-mcp), 영어 README 초안(내부 docs는 한국어 유지), 60초 데모 스크립트 시나리오, GitHub Actions `ci.yml`(make check).
-- 완료 기준: [ ] smoke 절차가 README에 5줄 이내 [ ] ci.yml이 로컬 act 또는 문법 검증 통과 [ ] 데모 시나리오 문서화 [ ] check 통과
+- 확장(사용자 확인 하에): 셀프서비스 온보딩(SPEC 목표 8, DESIGN §8.1) — `lang-ai-agent init/serve/smoke` 콘솔 스크립트, 기동 시 프로바이더 키 검사(`ConfigError`), OpenAI/xAI/Google SDK를 기본 의존성으로.
+- 완료 기준: [x] smoke 절차가 README에 5줄 이내(3줄) [x] ci.yml 문법 검증 통과(YAML 파싱; act 미설치) [x] 데모 시나리오 문서화(`docs/DEMO.md`) [x] check 통과(176 passed, core 100%, 전체 100%)
+- 실모델 스모크 결과(사용자 키, `anthropic:claude-sonnet-4-5`, dry_run, 과금 2회 ≈ $0.02 후 키 삭제): 시나리오 1 정상 — 도구 호출·token 스트리밍·usage(1회 ≈ 2.0k 입력/0.3k 출력 토큰, 8초). 스모크로만 드러난 결함 2건 수정: (1) pydantic-settings가 `.env`를 `os.environ`에 내보내지 않아 프로바이더 SDK가 키를 못 봄 → 기동 시 `load_dotenv`; (2) 실모델 content가 블록 리스트라 token 이벤트 0건·`last_message` None → `api/sse.py: content_text()`. 둘 다 회귀 테스트로 고정.
+- 설계 메모: 스모크 로직은 `lang_ai_agent/smoke.py`(`run_scenarios`가 콘솔 콜백을 주입받아 대본 모델로 테스트됨), `scripts/smoke.py`는 래퍼. `run_smoke`는 `SEND_MODE`를 dry_run으로 강제하고 `--mcp` 없이는 MCP를 로드하지 않으며 `init`이 쓴 `.env`를 전제로 한다(환경 변수를 건드리지 않음). `init`은 `.env`를 0600으로 생성(`touch(mode=)` 후 기록 — 권한 창 없음), 기존 파일은 `--force` 필요, 키는 `getpass`로만. 프로바이더 표(`adapters/llm.py: PROVIDERS`)는 anthropic/openai/xai/google_genai — 표 밖 프로바이더는 기동 검사 생략. `serve`·`smoke`는 `create_default_app`/`open_default_graph`를 재사용(조립 중복 없음).
 
 ### T12 — PyPI·npm 배포 방향 문서화 · 상태: DONE(2026-09-04) · 의존: 없음
 - 목표: SPEC/DESIGN/WORKFLOW/README에 "PyPI 배포"를 v0.1 정식 목표로 반영하고, npm(JS/TS 클라이언트 SDK) 배포는 v0.1 비목표로 명시해 착수를 보류한다. 사용자와의 대화로 방향 확정.
 - 완료 기준: [x] SPEC §2/§3/§5/§6/§7 갱신 [x] DESIGN에 §10 배포(Packaging) 섹션 추가 [x] WORKFLOW §4 자율성 한계선에 "정식 PyPI 배포 승인" 추가 [x] README 상태 로그 갱신 [x] 코드 변경 없음(문서 전용) 확인
 
 ### T13 — PyPI 패키징 · 상태: TODO · 의존: T11
-- 목표: `pyproject.toml` 배포 메타데이터(description/license/classifiers/urls/authors) 정비, `uv build`로 sdist+wheel 생성 검증, TestPyPI 시험 배포.
+- 목표: `pyproject.toml` 배포 메타데이터(description/license/classifiers/urls/authors) 정비, `uv build`로 sdist+wheel 생성 검증, TestPyPI 시험 배포. 콘솔 스크립트(`[project.scripts] lang-ai-agent`)는 T11에서 선반영됨 — 설치 후 `lang-ai-agent init`이 동작하는지 TestPyPI 설치 확인에 포함.
 - 완료 기준: [ ] `uv build` 성공 산출물(sdist+wheel) 확인 [ ] TestPyPI 업로드 성공 [ ] `--index-url` TestPyPI로 설치·임포트 확인 [ ] check 통과
 
 ### T14 — PyPI 정식 배포 워크플로 · 상태: TODO · 의존: T13
