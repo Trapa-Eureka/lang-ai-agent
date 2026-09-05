@@ -1,0 +1,11 @@
+{
+  "retail": {
+    "command": "npx",
+    "args": ["tsx", "/path/to/retail-mcp/src/server.ts"],
+    "transport": "stdio",
+    "approval": {
+      "default": "effect",
+      "safe": ["sell_through", "inventory_status", "stockout_risk", "sync_status"]
+    }
+  }
+}

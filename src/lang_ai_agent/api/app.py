@@ -23,6 +23,7 @@ Two ways to get an app:
 import uuid
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
@@ -38,11 +39,13 @@ from lang_ai_agent.adapters.builtin_tools import build_builtin_tool_specs
 from lang_ai_agent.adapters.checkpoint import build_sqlite_checkpointer, thread_config
 from lang_ai_agent.adapters.effects import Effects, SendMode
 from lang_ai_agent.adapters.llm import build_chat_model
+from lang_ai_agent.adapters.mcp_loader import load_mcp_servers_config, load_mcp_tool_specs
 from lang_ai_agent.adapters.observability import apply_langsmith_tracing, configure_logging
 from lang_ai_agent.api.auth import require_bearer_token
 from lang_ai_agent.api.sse import SSEEvent, stream_sse_events
 from lang_ai_agent.core.graph import build_graph
 from lang_ai_agent.core.state import AgentState, PendingAction, Usage
+from lang_ai_agent.core.tools_spec import merge_tool_specs
 
 type AgentGraph = CompiledStateGraph[AgentState, Any, AgentState, AgentState]
 type GraphFactory = Callable[[], AbstractAsyncContextManager[AgentGraph]]
@@ -58,6 +61,8 @@ class Settings(BaseSettings):
     checkpoint_db_path: str = "./data/checkpoints.db"
     send_mode: SendMode = SendMode.DRY_RUN
     langsmith_tracing: bool = False
+    mcp_servers_path: str | None = None
+    """Optional path to an `mcp_servers.json`; unset means built-in tools only."""
 
 
 # --- request / response models --------------------------------------------
@@ -189,8 +194,15 @@ def create_app(graph_factory: GraphFactory, bearer_token: str) -> FastAPI:
 async def _open_default_graph(settings: Settings) -> AsyncGenerator[AgentGraph, None]:
     effects = Effects(send_mode=settings.send_mode)
     model = build_chat_model(settings.model)
+    tool_specs = build_builtin_tool_specs(effects)
+    if settings.mcp_servers_path:
+        # DESIGN §6: the real-MCP-server path. A tool name that collides with
+        # a built-in (or another server's) tool is refused at startup rather
+        # than silently shadowed.
+        mcp_config = load_mcp_servers_config(Path(settings.mcp_servers_path))
+        tool_specs = merge_tool_specs(tool_specs, await load_mcp_tool_specs(mcp_config))
     async with build_sqlite_checkpointer(settings.checkpoint_db_path) as checkpointer:
-        yield build_graph(model, build_builtin_tool_specs(effects), checkpointer=checkpointer)
+        yield build_graph(model, tool_specs, checkpointer=checkpointer)
 
 
 def create_default_app() -> FastAPI:

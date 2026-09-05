@@ -249,3 +249,36 @@ async def test_create_default_app_wires_settings_and_a_sqlite_checkpointer(
     assert created.status_code == 200
     assert missing.status_code == 404
     assert db_path.exists()  # the lifespan really opened AsyncSqliteSaver there
+
+
+async def test_create_default_app_loads_mcp_tools_when_a_path_is_configured(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """MCP_SERVERS_PATH set -> the config is read, the loader runs, and its
+    tools merge into the graph at startup. The loader itself is replaced
+    (it would spawn a server process); the wiring around it is what's tested.
+    """
+    import lang_ai_agent.api.app as app_module
+    from lang_ai_agent.adapters.mcp_loader import McpServersConfig
+    from lang_ai_agent.core.tools_spec import ToolSpec
+
+    mcp_file = tmp_path / "mcp_servers.json"
+    mcp_file.write_text(json.dumps({"retail": {"command": "npx", "args": ["server"]}}))
+    monkeypatch.setenv("APP_BEARER_TOKEN", "from-env")
+    monkeypatch.setenv("CHECKPOINT_DB_PATH", str(tmp_path / "cp.db"))
+    monkeypatch.setenv("MCP_SERVERS_PATH", str(mcp_file))
+
+    loaded_with: list[McpServersConfig] = []
+
+    async def fake_load(config: McpServersConfig) -> list[ToolSpec]:
+        loaded_with.append(config)
+        return []
+
+    monkeypatch.setattr(app_module, "load_mcp_tool_specs", fake_load)
+
+    app = create_default_app()
+    async with _client(app) as client:
+        created = await client.post("/threads", headers={"Authorization": "Bearer from-env"})
+
+    assert created.status_code == 200
+    assert len(loaded_with) == 1 and set(loaded_with[0]) == {"retail"}
