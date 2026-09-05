@@ -1,8 +1,10 @@
 name: Publish
 
 # docs/RELEASE.md: a `v*` tag builds the package and publishes it to TestPyPI
-# through Trusted Publishing (OIDC) — no API token anywhere. The `pypi` job
-# for final tags (human-approved through the `pypi` environment) is T14.
+# through Trusted Publishing (OIDC) — no API token anywhere. A final version
+# tag (`v0.1.0`, not `v0.1.0rc1`) then continues to PyPI, but only after a
+# human approves the `pypi` environment deployment (WORKFLOW §4: a PyPI
+# release is irreversible — the same version can never be uploaded again).
 on:
   push:
     tags: ["v*"]
@@ -14,6 +16,9 @@ jobs:
   build:
     name: check + build
     runs-on: ubuntu-latest
+    outputs:
+      # "true" for rc/alpha/beta/dev versions (PEP 440), "false" for a final release.
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
 
@@ -25,14 +30,20 @@ jobs:
       - run: uv sync --locked
 
       # The tag is the version: `pyproject.toml` is the single source
-      # (DESIGN §10), the tag must spell exactly `v` + that value.
+      # (DESIGN §10), the tag must spell exactly `v` + that value. The same
+      # step classifies the version so the `pypi` job runs for final
+      # releases only — decided by PEP 440 parsing, not by string matching.
       - name: Tag matches pyproject version
+        id: version
         run: |
           version="$(uv version --short)"
           test "v${version}" = "${GITHUB_REF_NAME}" || {
             echo "::error::tag ${GITHUB_REF_NAME} does not match pyproject version ${version}"
             exit 1
           }
+          prerelease="$(uv run python -c 'import sys; from packaging.version import Version; print(str(Version(sys.argv[1]).is_prerelease).lower())' "${version}")"
+          echo "prerelease=${prerelease}" >> "${GITHUB_OUTPUT}"
+          echo "version ${version}: prerelease=${prerelease}"
 
       # Same gate every task passes locally; a tag never skips it.
       - run: make check
@@ -68,3 +79,25 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+
+  # Final releases only, and only after TestPyPI accepted the very same
+  # artifacts. The `pypi` environment carries a Required reviewer, so this
+  # job waits in "Review deployments" until a human approves it — that click
+  # is the WORKFLOW §4 release approval. Pre-release tags skip this job.
+  pypi:
+    name: publish to PyPI (human-approved)
+    needs: [build, testpypi]
+    if: needs.build.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/lang-ai-agent
+    permissions:
+      id-token: write # OIDC token for Trusted Publishing — the only permission needed
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
