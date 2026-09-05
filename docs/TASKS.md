@@ -49,9 +49,10 @@
 - 완료 기준: [x] **TESTING §4 API·SSE 4항목 전부** (httpx ASGI) [x] `make dev` 기동 [x] check 통과
 - 설계 메모: `create_app(graph_factory, bearer_token)`(주입용, 테스트) / `create_default_app()`(`.env` → Settings → 실모델 + AsyncSqliteSaver). `make dev`는 uvicorn `--factory`로 후자를 호출해 import 시점에 환경을 읽지 않음. 스레드는 첫 `/messages`에서 체크포인터에 생기며 존재 여부는 `aget_state().values`로 판정. 대기 중 인터럽트 없는 스레드의 `/approve`는 409. 설정은 pydantic-settings, SSE 프레이밍은 sse-starlette(`event:`=이벤트 type, `data:`=JSON).
 
-### T8 — usage·관측성 · 상태: TODO · 의존: T5
+### T8 — usage·관측성 · 상태: DONE(2026-09-05) · 의존: T5
 - 목표: 토큰 집계 콜백 → 상태 usage → SSE/state 노출, 구조화 JSON 로그, LANGSMITH_TRACING 옵션 배선.
-- 완료 기준: [ ] usage 누적 일치 테스트(TESTING §4) [ ] 로그에 thread_id·node·tool 포함 스냅샷 [ ] check 통과
+- 완료 기준: [x] usage 누적 일치 테스트(TESTING §4) [x] 로그에 thread_id·node·tool 포함 스냅샷 [x] check 통과
+- 설계 메모: 토큰 합산은 콜백 대신 agent 노드가 응답의 `usage_metadata`를 순수 함수 `usage_after_call`로 누적(DESIGN §7 메모). 로그 시계는 `build_graph(clock=)`로 주입 — 테스트는 `tests/helpers/fixed_clock.py`로 정확한 duration_ms 스냅샷. ScriptedChatModel(T2)은 턴별 고정 usage(`input_tokens=`/`output_tokens=`)를 받고 스트리밍 시 **마지막 청크에만** usage_metadata를 실음(LangChain이 청크 usage를 합산하므로 전 청크에 붙이면 배수가 됨 — 실측). LangSmith는 `LANGSMITH_TRACING`을 직접 읽지만 pydantic-settings는 `.env`를 `os.environ`에 안 내보내므로 기동 시 다시 써주는 게 "배선".
 
 ### T9 — MCP 로더 · 상태: TODO · 의존: T5
 - 목표: `mcp_servers.json` 파서 + `MultiServerMCPClient` 로더 + approval 매핑(미지정 도구 → effect 기본값), `.example` 파일.

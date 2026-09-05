@@ -100,6 +100,7 @@ class ToolSpec(BaseModel):
 - usage 집계: 모델 콜백에서 토큰 합산 → 상태 usage 갱신 → `usage` SSE 이벤트·state 조회에 노출.
 - 구조화 로그(JSON): thread_id, node, tool, duration. 
 - `LANGSMITH_TRACING=true`면 LangSmith 트레이싱 활성 (옵션, 기본 off).
+- 구현 메모(T8): 토큰 합산은 모델에 콜백을 거는 대신 agent 노드가 응답 AIMessage의 `usage_metadata`(LangChain 공통 필드, 콜백이 보는 값과 동일)를 읽어 순수 함수 `usage_after_call`로 누적한다 — 노드 입력만으로 결정되고 단위 테스트 가능. usage_metadata가 없는 응답도 `calls`는 +1. 로그는 `lang_ai_agent.graph` 로거에 `extra=`로 구조화 필드를 싣고 `adapters/observability.py`의 JsonFormatter가 한 줄 JSON으로 렌더링(`make dev` 진입점에서만 설치, 테스트는 caplog로 같은 레코드를 읽음). `duration_ms`의 시계는 `build_graph(clock=)`로 주입 가능(테스트는 FixedClock). LangSmith는 `LANGSMITH_TRACING` 환경변수를 스스로 읽지만 pydantic-settings는 `.env`를 `os.environ`으로 내보내지 않으므로, 기동 시 Settings 값을 `os.environ`에 다시 써서 `.env`만으로도 켜지게 배선한다.
 
 ## 8. 환경변수 (.env.example로 커밋)
 

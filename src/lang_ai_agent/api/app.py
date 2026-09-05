@@ -38,6 +38,7 @@ from lang_ai_agent.adapters.builtin_tools import build_builtin_tool_specs
 from lang_ai_agent.adapters.checkpoint import build_sqlite_checkpointer, thread_config
 from lang_ai_agent.adapters.effects import Effects, SendMode
 from lang_ai_agent.adapters.llm import build_chat_model
+from lang_ai_agent.adapters.observability import apply_langsmith_tracing, configure_logging
 from lang_ai_agent.api.auth import require_bearer_token
 from lang_ai_agent.api.sse import SSEEvent, stream_sse_events
 from lang_ai_agent.core.graph import build_graph
@@ -56,6 +57,7 @@ class Settings(BaseSettings):
     model: str | None = None
     checkpoint_db_path: str = "./data/checkpoints.db"
     send_mode: SendMode = SendMode.DRY_RUN
+    langsmith_tracing: bool = False
 
 
 # --- request / response models --------------------------------------------
@@ -196,6 +198,8 @@ def create_default_app() -> FastAPI:
     AsyncSqliteSaver. Reads the environment only when called, never on import.
     """
     settings = Settings()  # pyright: ignore[reportCallIssue] - app_bearer_token comes from the env
+    configure_logging()
+    apply_langsmith_tracing(settings.langsmith_tracing)
     return create_app(
         graph_factory=lambda: _open_default_graph(settings),
         bearer_token=settings.app_bearer_token,
