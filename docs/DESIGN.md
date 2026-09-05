@@ -159,7 +159,8 @@ lang_ai_agent/
 
 ## 10. 배포 (Packaging → PyPI)
 
-- **빌드**: `uv build`로 `pyproject.toml` 하나(single source)에서 sdist + wheel 생성. 버전은 `pyproject.toml`의 `version` 필드가 유일한 소스이며 git 태그(`vX.Y.Z`)와 연동한다.
+- **빌드**: `uv build`로 `pyproject.toml` 하나(single source)에서 sdist + wheel 생성. 버전은 `pyproject.toml`의 `version` 필드가 유일한 소스이며 git 태그(`vX.Y.Z`)와 연동한다 — 패키지의 `__version__`은 `importlib.metadata`로 그 값을 읽고(하드코딩 없음), 워크플로가 태그와 버전의 불일치를 실패시킨다.
+- **메타데이터**(T13): 라이선스는 PEP 639 방식 `license = "MIT"` + `license-files = ["LICENSE"]`로 적는다(`License-Expression`·`License-File`). 같은 정보를 반복하는 `License :: OSI Approved` classifier는 PyPI가 deprecated로 취급하므로 넣지 않는다. classifiers는 Development Status·Python 3.12(CI가 검증하는 버전만)·Framework :: FastAPI·Typing :: Typed, `[project.urls]`는 Homepage/Repository/Issues. PyPI는 README의 mermaid를 코드 블록으로만 보여준다(GitHub은 렌더링) — 필요하면 T15에서 정적 이미지 보완.
 - **파이프라인**: TestPyPI로 먼저 검증(T13, 에이전트가 자율 진행 가능) → 정식 PyPI(T14).
 - **인증**: PyPI Trusted Publishing(OIDC, GitHub Actions) 사용 — 장기 API 토큰을 레포·시크릿에 저장하지 않는다. 2026-09-05 사용자 확정. 사람이 1회 설정하는 항목(계정·pending publisher·GitHub Environments), 태그·버전 규칙, 배포 절차는 `docs/RELEASE.md`.
 - **게이트**: 정식(prod) PyPI 배포 실행은 **사람 승인 후 트리거**한다(`docs/WORKFLOW.md` §4) — PyPI는 동일 버전 삭제 후 재업로드가 불가능해 `SEND_MODE=live`급 비가역 행동이기 때문. 구현은 GitHub Environment `pypi`의 Required reviewers. TestPyPI도 같은 버전 재업로드는 불가하지만 사용자에게 노출되지 않는 시험 인덱스라 사람 승인 없이 CI가 자동 배포한다.

@@ -1,12 +1,25 @@
 [project]
 name = "lang-ai-agent"
-version = "0.1.0"
+version = "0.1.0rc1"
 description = "LangGraph-based production agent backend with a human-approval gate for effectful tools (Ops Copilot demo)"
 authors = [
     { name = "Trapa-Eureka", email = "son199@hanmail.net" }
 ]
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["langgraph", "langchain", "agent", "human-in-the-loop", "approval", "fastapi", "sse", "mcp"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Framework :: FastAPI",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
 dependencies = [
     "aiosqlite>=0.22.1",
     "fastapi>=0.141.1",
@@ -28,6 +41,11 @@ dependencies = [
 
 [project.scripts]
 lang-ai-agent = "lang_ai_agent.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Trapa-Eureka/lang-ai-agent"
+Repository = "https://github.com/Trapa-Eureka/lang-ai-agent"
+Issues = "https://github.com/Trapa-Eureka/lang-ai-agent/issues"
 
 [build-system]
 requires = ["uv_build>=0.12.9,<0.13.0"]

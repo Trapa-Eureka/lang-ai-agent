@@ -77,10 +77,11 @@
 - 목표: SPEC/DESIGN/WORKFLOW/README에 "PyPI 배포"를 v0.1 정식 목표로 반영하고, npm(JS/TS 클라이언트 SDK) 배포는 v0.1 비목표로 명시해 착수를 보류한다. 사용자와의 대화로 방향 확정.
 - 완료 기준: [x] SPEC §2/§3/§5/§6/§7 갱신 [x] DESIGN에 §10 배포(Packaging) 섹션 추가 [x] WORKFLOW §4 자율성 한계선에 "정식 PyPI 배포 승인" 추가 [x] README 상태 로그 갱신 [x] 코드 변경 없음(문서 전용) 확인
 
-### T13 — PyPI 패키징 · 상태: TODO · 의존: T11
+### T13 — PyPI 패키징 · 상태: 진행 중(2026-09-05 — 패키징 머지 → `v0.1.0rc1` 태그로 TestPyPI 검증 후 DONE) · 의존: T11, T16
 - 목표: `pyproject.toml` 배포 메타데이터(description/license/classifiers/urls/authors) 정비, `uv build`로 sdist+wheel 생성 검증, TestPyPI 시험 배포. 콘솔 스크립트(`[project.scripts] lang-ai-agent`)는 T11에서 선반영됨 — 설치 후 `lang-ai-agent init`이 동작하는지 TestPyPI 설치 확인에 포함.
 - 선행 결정(2026-09-05, 문서 선행 완료 — `docs/RELEASE.md`): 라이선스 **MIT** → `LICENSE` 파일 추가를 T15에서 T13으로 당김. 인증은 **Trusted Publishing** → `.github/workflows/publish.yml`(build + `testpypi` job)을 T13에서 작성. TestPyPI 업로드는 사람이 RELEASE.md §1(계정·pending publisher·GitHub Environments)을 마친 뒤 `v0.1.0rcN` 태그로 수행. `uv build`는 2026-09-05 현재 상태로 이미 성공(누락은 METADATA의 License/Classifier/Project-URL/Keywords뿐), `src/` 코드 변경 없음.
-- 완료 기준: [ ] `uv build` 성공 산출물(sdist+wheel) 확인 [ ] `LICENSE`(MIT)·메타데이터가 wheel METADATA에 반영 [ ] `publish.yml` 문법 검증 [ ] TestPyPI 업로드 성공 [ ] `--index-url` TestPyPI로 설치·`lang-ai-agent --help` 확인 [ ] check 통과
+- 완료 기준: [x] `uv build` 성공 산출물(sdist+wheel) 확인 [x] `LICENSE`(MIT)·메타데이터가 wheel METADATA에 반영(`License-Expression: MIT`, `License-File`, classifiers, Project-URL, Keywords; LICENSE는 sdist·wheel 모두 포함) [x] `publish.yml` 문법 검증(YAML 파싱, build + `testpypi` job) [ ] TestPyPI 업로드 성공 [ ] `--index-url` TestPyPI로 설치·`lang-ai-agent --help` 확인 [x] check 통과(208 passed, 100%)
+- 구현 메모: 버전은 `uv version 0.1.0rc1`로 pyproject와 uv.lock을 함께 올렸고(정식 `0.1.0`은 T14), `__version__`은 `importlib.metadata`로 읽어 하드코딩을 없앴다(스캐폴딩 테스트는 pyproject 값과 일치 검사). 빌드된 wheel은 프로젝트 밖 격리 환경(`uv run --isolated --no-project --with dist/*.whl`)에서 콘솔 스크립트·버전을 확인. `publish.yml`의 build job은 태그↔버전 일치 검사 → `make check` → `uv build` → wheel 스모크 → 아티팩트 업로드, `testpypi` job은 환경 `testpypi` + `id-token: write`로 `pypa/gh-action-pypi-publish`. 라이선스 classifier는 PEP 639 표현식과 중복이라 넣지 않았다(DESIGN §10).
 
 ### T14 — PyPI 정식 배포 워크플로 · 상태: TODO · 의존: T13
 - 목표: GitHub Actions + Trusted Publishing(OIDC)으로 태그 푸시 시 정식 PyPI 배포 파이프라인 구성. **정식 배포 실행은 매번 사람 승인 후 트리거**(WORKFLOW §4). 구현은 T13의 `publish.yml`에 `pypi` job 추가(환경 `pypi`의 Required reviewers = 사람 승인, 정식 태그에만 실행). 태그·버전 규칙은 `docs/RELEASE.md` §3에 선문서화(2026-09-05).

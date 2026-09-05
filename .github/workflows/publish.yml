@@ -1,0 +1,70 @@
+name: Publish
+
+# docs/RELEASE.md: a `v*` tag builds the package and publishes it to TestPyPI
+# through Trusted Publishing (OIDC) — no API token anywhere. The `pypi` job
+# for final tags (human-approved through the `pypi` environment) is T14.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: check + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - run: uv sync --locked
+
+      # The tag is the version: `pyproject.toml` is the single source
+      # (DESIGN §10), the tag must spell exactly `v` + that value.
+      - name: Tag matches pyproject version
+        run: |
+          version="$(uv version --short)"
+          test "v${version}" = "${GITHUB_REF_NAME}" || {
+            echo "::error::tag ${GITHUB_REF_NAME} does not match pyproject version ${version}"
+            exit 1
+          }
+
+      # Same gate every task passes locally; a tag never skips it.
+      - run: make check
+
+      - run: uv build
+
+      # The wheel must install and expose the console script on its own,
+      # outside this checkout — what a `pip install lang-ai-agent` user gets.
+      - name: Smoke the built wheel
+        run: uv run --isolated --no-project --with ./dist/lang_ai_agent-*.whl -- lang-ai-agent --help
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  testpypi:
+    name: publish to TestPyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/lang-ai-agent
+    permissions:
+      id-token: write # OIDC token for Trusted Publishing — the only permission needed
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/

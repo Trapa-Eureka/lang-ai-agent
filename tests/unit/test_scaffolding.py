@@ -5,8 +5,12 @@ T0's completion criteria (docs/TASKS.md): "dummy async test runs".
 """
 
 import asyncio
+import tomllib
+from pathlib import Path
 
 import lang_ai_agent
+
+_PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
 
 
 async def _identity(value: int) -> int:
@@ -19,5 +23,9 @@ async def test_dummy_async_harness_runs() -> None:
     assert await _identity(1) == 1
 
 
-def test_package_is_importable_and_versioned() -> None:
-    assert lang_ai_agent.__version__ == "0.1.0"
+def test_package_version_is_the_pyproject_version() -> None:
+    """pyproject.toml is the single source of the version (docs/DESIGN.md §10);
+    `__version__` must be read from it, never hardcoded to drift."""
+    pyproject = tomllib.loads(_PYPROJECT.read_text(encoding="utf-8"))
+
+    assert lang_ai_agent.__version__ == pyproject["project"]["version"]
