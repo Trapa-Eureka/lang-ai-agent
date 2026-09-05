@@ -71,6 +71,7 @@
 - 완료 기준: [x] smoke 절차가 README에 5줄 이내(3줄) [x] ci.yml 문법 검증 통과(YAML 파싱; act 미설치) [x] 데모 시나리오 문서화(`docs/DEMO.md`) [x] check 통과(176 passed, core 100%, 전체 100%)
 - 실모델 스모크 결과(사용자 키, `anthropic:claude-sonnet-4-5`, dry_run, 과금 2회 ≈ $0.02 후 키 삭제): 시나리오 1 정상 — 도구 호출·token 스트리밍·usage(1회 ≈ 2.0k 입력/0.3k 출력 토큰, 8초). 스모크로만 드러난 결함 2건 수정: (1) pydantic-settings가 `.env`를 `os.environ`에 내보내지 않아 프로바이더 SDK가 키를 못 봄 → 기동 시 `load_dotenv`; (2) 실모델 content가 블록 리스트라 token 이벤트 0건·`last_message` None → `api/sse.py: content_text()`. 둘 다 회귀 테스트로 고정.
 - 설계 메모: 스모크 로직은 `lang_ai_agent/smoke.py`(`run_scenarios`가 콘솔 콜백을 주입받아 대본 모델로 테스트됨), `scripts/smoke.py`는 래퍼. `run_smoke`는 `SEND_MODE`를 dry_run으로 강제하고 `--mcp` 없이는 MCP를 로드하지 않으며 `init`이 쓴 `.env`를 전제로 한다(환경 변수를 건드리지 않음). `init`은 `.env`를 0600으로 생성(`touch(mode=)` 후 기록 — 권한 창 없음), 기존 파일은 `--force` 필요, 키는 `getpass`로만. 프로바이더 표(`adapters/llm.py: PROVIDERS`)는 anthropic/openai/xai/google_genai — 표 밖 프로바이더는 기동 검사 생략. `serve`·`smoke`는 `create_default_app`/`open_default_graph`를 재사용(조립 중복 없음).
+- 사용자 결정(2026-09-05, 머지 후): 기본 모델 `claude-sonnet-4-5` 유지(SPEC §8 해소), `init` 제안 모델명 유지, README 영문 톤은 에이전트가 최종 검토(표현 8곳 다듬음, 구조·주장 변경 없음).
 
 ### T12 — PyPI·npm 배포 방향 문서화 · 상태: DONE(2026-09-04) · 의존: 없음
 - 목표: SPEC/DESIGN/WORKFLOW/README에 "PyPI 배포"를 v0.1 정식 목표로 반영하고, npm(JS/TS 클라이언트 SDK) 배포는 v0.1 비목표로 명시해 착수를 보류한다. 사용자와의 대화로 방향 확정.

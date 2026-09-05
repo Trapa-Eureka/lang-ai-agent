@@ -1,10 +1,10 @@
 # lang_ai_agent
 
-**A production-shaped LangGraph agent backend**: streaming HTTP API, durable state that survives restarts, a human-approval gate for side-effecting tools, deterministic tests that never call a real LLM, and observability built in.
+**A LangGraph agent backend built around production patterns**: a streaming HTTP API, durable state that survives restarts, a human-approval gate for side-effecting tools, deterministic tests that never call a real LLM, and built-in observability.
 
 It ships as an **Ops Copilot** demo (multi-store retail: "what's about to stock out?" → "send the reorder email"), but the runtime is domain-agnostic — the tools are the only retail-specific part. Swap them (or plug in your own MCP servers) and keep everything else.
 
-> **Status** — v0.1 backend complete and gated by `make check` (ruff, pyright strict, pytest; 100% coverage on the graph core). PyPI packaging and the first release are next. Internal design docs under `docs/` are in Korean; this README is the English entry point.
+> **Status** — the v0.1 backend is complete and gated by `make check` (ruff, pyright strict, pytest; 100% coverage on the graph core). PyPI packaging and the first release are next. Internal design docs under `docs/` are in Korean; this README is the English entry point.
 
 ## How it works
 
@@ -25,13 +25,15 @@ The only edge into `effect_tools` passes through `approval`. That is not a conve
 
 ## Quickstart
 
+Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+
 ```bash
 uv sync                      # (pip install lang-ai-agent — after the PyPI release)
 uv run lang-ai-agent init    # pick a provider, paste your API key → writes .env (mode 0600)
 uv run lang-ai-agent serve   # http://127.0.0.1:8000 — fails fast if the key is missing
 ```
 
-`init` supports **Anthropic** (default), **OpenAI**, **xAI** and **Google**; `MODEL` uses LangChain's `provider:model` form, so any provider `init_chat_model` knows works too. Your key only ever lives in the git-ignored `.env`.
+`init` supports **Anthropic** (default), **OpenAI**, **xAI** and **Google**; `MODEL` uses LangChain's `provider:model` form, so any other provider `init_chat_model` supports works as well. Your key is written only to the git-ignored `.env`.
 
 Talk to it from another terminal (`TOKEN` is the `APP_BEARER_TOKEN` that `init` printed):
 
@@ -42,7 +44,7 @@ curl -sN -X POST "${H[@]}" localhost:8000/threads/$TID/messages \
   -d '{"content":"Which items at store main will stock out next week? Summarize as a table."}'
 ```
 
-You get a Server-Sent Events stream: `tool_start`/`tool_end` for `check_stockout`, `token` events with the table, then `usage` and `done`.
+The response is a Server-Sent Events stream: `tool_start`/`tool_end` for `check_stockout`, `token` events carrying the table, then `usage` and `done`.
 
 ## API
 
@@ -73,14 +75,14 @@ make smoke                        # scenario 1 (query) + scenario 2 (draft → y
 uv run lang-ai-agent smoke --mcp  # same, with the real MCP servers from mcp_servers.json
 ```
 
-Always dry-run regardless of `.env`; costs 3–4 model calls (cents on a Sonnet-class model). Everything else in the repo runs without a key: `make check` makes zero network calls.
+The smoke always runs dry-run, whatever `.env` says, and costs three to four model calls (cents on a Sonnet-class model). Everything else runs without a key: `make check` makes zero network calls.
 
 ## Why it is built this way
 
-- **Approval as topology, not a flag.** Effectful tools are reachable only through the `approval` node, and a graph-structure test enforces it. Sending is double-gated: the interrupt *and* `SEND_MODE=live`.
+- **Approval as topology, not a flag.** Side-effecting tools are reachable only through the `approval` node, and a graph-structure test enforces it. Sending is double-gated: the interrupt *and* `SEND_MODE=live`.
 - **The model is a script in tests.** `ScriptedChatModel` replays a fixed sequence of `AIMessage`s (tool calls included) and fails loudly if the script is exhausted or diverges. With the model scripted, the graph is a state machine and every path — approve, reject-and-revise, tool failure, restart mid-interrupt — is a deterministic test. Real models appear only in the smoke.
 - **State stays small.** State is serialized at every checkpoint, so it holds messages and minimal metadata; large tool results are summarized before they enter it.
-- **Static types as the cheapest feedback loop.** pyright strict + Pydantic v2 at every boundary (requests, model output, MCP responses), `Any` returns banned, `# type: ignore` requires a reason.
+- **Static types as the cheapest feedback loop.** pyright strict + Pydantic v2 at every boundary (requests, model output, MCP responses), no `Any` returns, and every `# type: ignore` carries a reason.
 - **Fail at startup, not on the first request.** A missing provider key or bearer token is a `ConfigError` with the fix in the message, raised before the server binds.
 - **Provider-agnostic, MCP-native.** `init_chat_model` for the model; `langchain-mcp-adapters` to mount MCP servers as tools, each mapped to safe/effect (unlisted tools default to *effect*).
 
