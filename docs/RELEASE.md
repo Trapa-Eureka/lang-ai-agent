@@ -89,8 +89,8 @@ jobs:
         with:
           repository-url: https://test.pypi.org/legacy/
   pypi:                          # T14에서 추가
-    needs: testpypi
-    if: ${{ !contains(github.ref_name, 'rc') }}   # 정식 태그만
+    needs: [build, testpypi]
+    if: needs.build.outputs.prerelease == 'false'   # 정식 태그만
     runs-on: ubuntu-latest
     environment: { name: pypi, url: https://pypi.org/p/lang-ai-agent }   # Required reviewers
     permissions:
@@ -100,6 +100,8 @@ jobs:
         with: { name: dist, path: dist/ }
       - uses: pypa/gh-action-pypi-publish@release/v1
 ```
+
+정식/프리릴리스 판정(T14 구현): build job의 태그 검사 단계가 `packaging.version.Version(version).is_prerelease`를 계산해 job 출력 `prerelease`로 넘기고, `pypi` job은 그 값이 `false`일 때만 실행된다. 태그 문자열에 `rc`가 있는지 보는 방식은 `a1`·`b1`·`.dev1` 프리릴리스를 정식으로 오판하므로 PEP 440 파싱으로 판정한다. 프리릴리스 태그에서는 `pypi` job이 skipped로 표시되고 워크플로는 성공이다.
 
 ## 3. 태그·버전 규칙
 
@@ -119,7 +121,7 @@ uv pip install --index-url https://test.pypi.org/simple/ \
 lang-ai-agent --help
 ```
 
-4. 정식: version `0.1.0` → 머지 → `v0.1.0` 태그 → testpypi 성공 후 Actions의 `pypi` job에서 "Review deployments" → Approve. 이 클릭이 정식 배포다.
+4. 정식: version `0.1.0` → 머지 → `v0.1.0` 태그 → testpypi 성공 후 Actions의 `pypi` job에서 "Review deployments" → Approve. 이 클릭이 정식 배포다. 태그를 올리면 TestPyPI에 그 정식 버전이 먼저 소비되므로(재업로드 불가), 릴리스에 포함될 README 등 배포물 내용이 확정된 뒤에 태그한다.
 5. 확인: `pip install lang-ai-agent` → `lang-ai-agent init` → `lang-ai-agent serve`.
 
 ## 5. 실행 기록
