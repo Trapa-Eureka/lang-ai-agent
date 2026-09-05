@@ -31,19 +31,24 @@ async def api_client(app: FastAPI) -> AsyncGenerator[httpx.AsyncClient, None]:
             yield client
 
 
-async def read_sse(
+async def request_sse(
     client: httpx.AsyncClient,
     method: str,
     url: str,
     body: dict[str, Any],
     *,
     headers: dict[str, str] = AUTH_HEADERS,
-) -> list[dict[str, Any]]:
-    """Consume an SSE response into [{"event": ..., "data": {...}}, ...]."""
+) -> tuple[int, list[dict[str, Any]]]:
+    """Consume an SSE response into `(status, [{"event": ..., "data": {...}}, ...])`.
+
+    `events` is empty unless the status is 200 — for tests where a request
+    may legitimately be refused (a lost approval race, for instance).
+    """
     events: list[dict[str, Any]] = []
     current: dict[str, Any] = {}
     async with client.stream(method, url, json=body, headers=headers) as response:
-        assert response.status_code == 200
+        if response.status_code != 200:
+            return response.status_code, []
         assert response.headers["content-type"].startswith("text/event-stream")
         async for line in response.aiter_lines():
             if line.startswith("event:"):
@@ -53,6 +58,21 @@ async def read_sse(
             elif not line and current:
                 events.append(current)
                 current = {}
+    return 200, events
+
+
+async def read_sse(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    body: dict[str, Any],
+    *,
+    headers: dict[str, str] = AUTH_HEADERS,
+) -> list[dict[str, Any]]:
+    """Consume an SSE response into [{"event": ..., "data": {...}}, ...]; the
+    request must succeed."""
+    status, events = await request_sse(client, method, url, body, headers=headers)
+    assert status == 200, f"{method} {url} -> HTTP {status}"
     return events
 
 

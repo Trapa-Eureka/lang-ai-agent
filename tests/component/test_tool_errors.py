@@ -51,6 +51,10 @@ async def test_a_failing_safe_tool_becomes_an_error_tool_message_not_a_crash() -
 
     tool_messages = [m for m in result["messages"] if type(m).__name__ == "ToolMessage"]
     assert len(tool_messages) == 1
-    assert "failed" in tool_messages[0].content
+    # the model sees type + first line only (audit 001, AUD-007), never a traceback
+    assert tool_messages[0].content == (
+        "Tool 'check_stockout' failed: RuntimeError: check_stockout failed for store='main' "
+        "(injected failure)"
+    )
     assert result["messages"][-1].content == "Sorry, I couldn't check stock right now."
     model.assert_exhausted()

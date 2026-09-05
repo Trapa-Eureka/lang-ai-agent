@@ -27,8 +27,9 @@ tests/component/test_approval_gate.py for the structural proof via
 
 Observability (DESIGN §7): every node run and every tool call logs one
 structured record on the `lang_ai_agent.graph` logger with `thread_id`,
-`node`/`tool` and `duration_ms` in `extra=`; the agent node folds each
-model response's `usage_metadata` into `state["usage"]`.
+`node`/`tool` and `duration_ms` in `extra=`; the agent node emits each
+model response's `usage_metadata` as a one-call delta that the state's
+`add_usage` reducer folds into `state["usage"]`.
 """
 
 import asyncio
@@ -47,7 +48,9 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import interrupt
+from pydantic import JsonValue
 
+from lang_ai_agent.core.errors import describe_error
 from lang_ai_agent.core.state import AgentState, PendingAction, Usage
 from lang_ai_agent.core.tools_spec import ToolSpec
 
@@ -71,19 +74,21 @@ class InvalidToolCallError(RuntimeError):
     """
 
 
-def usage_after_call(usage: Usage, response: AIMessage) -> Usage:
-    """Fold one model response into the running total (DESIGN §7).
+def usage_of_call(response: AIMessage) -> Usage:
+    """One model response as a usage *delta* (DESIGN §7).
 
-    Reads the response's `usage_metadata` (LangChain's provider-neutral
-    token counts — what a model callback would see) rather than hanging a
-    callback off the model, so this stays a pure function on the node's
-    own inputs. A response without usage_metadata still counts as a call.
+    The state's `add_usage` reducer sums these into the thread total, so
+    the node never reads — or accidentally resets — the running total
+    itself. Reads the response's `usage_metadata` (LangChain's
+    provider-neutral token counts — what a model callback would see) rather
+    than hanging a callback off the model, so this stays a pure function of
+    the response. A response without usage_metadata still counts as a call.
     """
     metadata = response.usage_metadata
     return Usage(
-        input_tokens=usage.input_tokens + (metadata["input_tokens"] if metadata else 0),
-        output_tokens=usage.output_tokens + (metadata["output_tokens"] if metadata else 0),
-        calls=usage.calls + 1,
+        input_tokens=metadata["input_tokens"] if metadata else 0,
+        output_tokens=metadata["output_tokens"] if metadata else 0,
+        calls=1,
     )
 
 
@@ -162,32 +167,77 @@ def _draft_from_args(args: dict[str, Any]) -> str:
     return json.dumps(args, ensure_ascii=False)
 
 
+PREVIEW_CHARS = 120
+"""Longest value `PendingAction.args_preview` keeps, per argument."""
+
+
+def _summarize_args(args: dict[str, Any]) -> dict[str, JsonValue]:
+    """The human-facing summary for `PendingAction.args_preview` (DESIGN §2).
+
+    Scalars pass through; strings and nested values are cut to
+    `PREVIEW_CHARS`, so the interrupt payload — checkpointed on every pause
+    and returned by `/state` — stays small however long the model's
+    arguments get (audit 001, AUD-005). The tool never runs from this
+    summary: `effect_tools` uses `_original_tool_call`.
+    """
+    preview: dict[str, JsonValue] = {}
+    for key, value in args.items():
+        if value is None or isinstance(value, bool | int | float):
+            preview[key] = value
+            continue
+        text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        preview[key] = text if len(text) <= PREVIEW_CHARS else text[: PREVIEW_CHARS - 1] + "…"
+    return preview
+
+
+def _original_tool_call(messages: Sequence[AnyMessage], tool_call_id: str) -> ToolCall:
+    """The model's own tool_call for `tool_call_id`, from the last AIMessage —
+    the arguments an approved effect actually runs with, in full.
+    """
+    ai_index = _find_last_ai_message_index(messages)
+    last_ai_message = messages[ai_index] if ai_index is not None else None
+    if isinstance(last_ai_message, AIMessage):
+        for call in last_ai_message.tool_calls:
+            if call["id"] == tool_call_id:
+                return call
+    # Defensive: `approval` always records a call taken from this very message.
+    raise InvalidToolCallError(  # pragma: no cover
+        f"Tool call {tool_call_id!r} is no longer in the last model message."
+    )
+
+
 async def _run_tool_call(
     tool: BaseTool, call: ToolCall, *, thread_id: str, clock: Clock
 ) -> ToolMessage:
     """Invoke one tool call, turning an exception into an error ToolMessage
     instead of crashing the graph (docs/TESTING.md §4), and log it.
+
+    The model only sees `describe_error(exc)` — type and first line — never
+    a traceback, request dump or path an SDK error may carry (audit 001,
+    AUD-007); the full exception rides on the log record as `exc_info`.
     """
     started = clock()
+    error: Exception | None = None
     try:
         result = await tool.ainvoke(call)
-        ok = True
     except Exception as exc:  # broad on purpose: a tool failure becomes a ToolMessage, not a crash
+        error = exc
         result = ToolMessage(
-            content=f"Tool {call['name']!r} failed: {exc}",
+            content=f"Tool {call['name']!r} failed: {describe_error(exc)}",
             tool_call_id=_require_tool_call_id(call),
             name=call["name"],
         )
-        ok = False
-    logger.info(
-        "tool",
-        extra={
-            "thread_id": thread_id,
-            "tool": call["name"],
-            "tool_call_id": call["id"],
-            "duration_ms": (clock() - started) * 1000,
-            "ok": ok,
-        },
+    fields: dict[str, Any] = {
+        "thread_id": thread_id,
+        "tool": call["name"],
+        "tool_call_id": call["id"],
+        "duration_ms": (clock() - started) * 1000,
+        "ok": error is None,
+    }
+    if error is not None:
+        fields["error_type"] = type(error).__name__
+    logger.log(
+        logging.INFO if error is None else logging.WARNING, "tool", extra=fields, exc_info=error
     )
     return result
 
@@ -240,7 +290,7 @@ def build_graph(
 
     async def agent_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         response = await bound_model.ainvoke(state["messages"])
-        return {"messages": [response], "usage": usage_after_call(state["usage"], response)}
+        return {"messages": [response], "usage": usage_of_call(response)}
 
     def route_after_agent(state: AgentState) -> str:
         safe, effect = _classify_unhandled_tool_calls(state["messages"], tool_specs_by_name)
@@ -272,7 +322,7 @@ def build_graph(
         pending = PendingAction(
             tool_call_id=_require_tool_call_id(call),
             tool_name=call["name"],
-            args_preview=dict(call["args"]),
+            args_preview=_summarize_args(call["args"]),
         )
         resume = interrupt({"action": pending, "draft": _draft_from_args(call["args"])})
 
@@ -293,12 +343,9 @@ def build_graph(
         pending = state["pending"]
         if pending is None:  # pragma: no cover - route_after_approval guarantees this
             raise AssertionError("effect_tools reached with no pending action")
-        call: ToolCall = {
-            "name": pending.tool_name,
-            "args": pending.args_preview,
-            "id": pending.tool_call_id,
-            "type": "tool_call",
-        }
+        # Run the model's original call, not the preview: the preview is a
+        # truncated summary for the human (DESIGN §2), never the arguments.
+        call = _original_tool_call(state["messages"], pending.tool_call_id)
         message = await _run_tool_call(
             tools_by_name[pending.tool_name], call, thread_id=_thread_id(config), clock=clock
         )

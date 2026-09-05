@@ -63,6 +63,27 @@ async def test_usage_keeps_accumulating_across_an_interrupt_and_resume(
     )
 
 
+async def test_usage_keeps_accumulating_across_user_turns(make_harness: MakeHarness) -> None:
+    """AUD-003: every new turn submits `Usage()` as graph input; the state's
+    reducer must add it to the total, not replace the total with it."""
+    harness: GraphHarness = make_harness(
+        script()
+        .final("first", input_tokens=10, output_tokens=1)
+        .final("second", input_tokens=20, output_tokens=2)
+        .build()
+    )
+
+    await harness.run("one")
+    after_one = (await harness.state_values())["usage"]
+    await harness.run("two")
+
+    assert after_one == Usage(input_tokens=10, output_tokens=1, calls=1)
+    assert (await harness.state_values())["usage"] == Usage(
+        input_tokens=30, output_tokens=3, calls=2
+    )
+    harness.model.assert_exhausted()
+
+
 async def test_a_turn_without_usage_metadata_still_counts_the_call(
     make_harness: MakeHarness,
 ) -> None:

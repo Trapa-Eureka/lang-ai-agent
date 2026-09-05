@@ -61,6 +61,17 @@
 - [x] SSE `token`·`/state`의 `last_message`가 실모델 형태(콘텐츠 블록 리스트)에서도 나옴 — 블록 리스트 대본
 - [x] 스모크 승인 루프(`lang_ai_agent.smoke.run_scenarios`)를 대본 모델 + MockEffects로 검증 — 실모델 호출 0건, `SEND_MODE`는 강제 dry_run
 
+**감사 001 대응 (T16 — `docs/001_ADVERSARIAL_CODE_AUDIT.md` §5)**
+- [x] 같은 승인의 동시 `/approve` 2건 → effect 1회 실행, 진 쪽은 409 또는 `error` 1개 (AUD-001)
+- [x] 같은 스레드 동시 `/messages` 2건 → 직렬 실행(메시지 순서 H·A·H·A), 승인 대기 중 `/messages` → 409 (AUD-002)
+- [x] 사용자 턴 2회 뒤 usage 누적 = 두 턴의 합(그래프·API 양쪽) (AUD-003)
+- [x] `DELETE /threads/{id}` → 204, 이후 `/state` 404; 기록 없는 id → 404 (AUD-004 최소)
+- [x] Content-Length 64 KiB 초과 → 413(본문 파싱 전), `content` 8,000자 초과 → 422; 긴 effect 인자는 preview만 잘리고 초안·실행은 원본 (AUD-005)
+- [x] 스트림 종료 후 `aget_state` 실패 → 정확히 한 번의 `error`, `usage`/`done` 없음, 로그에 exc_info (AUD-006)
+- [x] 도구 예외·스트림 예외·MCP 실패는 `타입: 첫 줄(≤200자)`만 노출, 경로·후속 줄 미노출 (AUD-007)
+- [x] `.env` 원자적 기록: rename 실패 시 원본 보존·임시파일 없음, symlink 거절 (AUD-009; AUD-008 `compare_digest`는 코드 검토로 확인)
+- [x] MCP 서버 무응답 → 타임아웃 `McpConfigError`(서버명·시간), 서버 실패 → 서버명 + 첫 줄 (§3 MCP)
+
 ## 5. 수동 스모크 (사람 전용 — scripts/smoke.py)
 
 `make smoke`(= `lang-ai-agent smoke`): 실모델로 시나리오 1(조회) + 시나리오 2(발송 초안 → 인터럽트 → 콘솔 y/n) 재현. `SEND_MODE`는 `.env` 값과 무관하게 dry_run으로 **강제** — 실발송(live)은 스모크에 포함하지 않는다. `--mcp` 플래그 시 `mcp_servers.json`(또는 `MCP_SERVERS_PATH`)의 실 retail-mcp를 stdio로 물려 재현. 1회 비용은 모델 호출 3~4회(Sonnet 급에서 수 센트). 콘솔 루프 자체는 §4 "온보딩·설정"대로 대본 모델로 테스트하고, 실모델 실행은 사람이 결정한다(WORKFLOW §4).

@@ -6,6 +6,7 @@ factory so app.py can inject the configured token and tests can inject a
 known one — auth never reads the environment itself.
 """
 
+import secrets
 from collections.abc import Awaitable, Callable
 from typing import Annotated
 
@@ -30,7 +31,11 @@ def require_bearer_token(expected_token: str) -> Callable[..., Awaitable[None]]:
     async def _check(
         credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer_scheme)],
     ) -> None:
-        if credentials is None or credentials.credentials != expected_token:
+        # Constant-time comparison (audit 001, AUD-008); bytes, so a non-ASCII
+        # header value can't turn into a TypeError-turned-500.
+        if credentials is None or not secrets.compare_digest(
+            credentials.credentials.encode(), expected_token.encode()
+        ):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=(

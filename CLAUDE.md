@@ -47,6 +47,8 @@ mcp_servers.json.example   # MCP 도구 연결 설정 예시
 - **상태(State)에 대용량 페이로드 저장 금지** — 상태는 매 체크포인트마다 직렬화되므로 메시지·최소 메타만 담고, 큰 결과물은 요약해서 넣는다.
 - 에러 메시지는 원인 + 수정 방법까지 (예: `mcp_servers.json이 없습니다. mcp_servers.json.example을 복사해 서버 경로를 채우세요.`). 설정 문제는 첫 요청이 아니라 **기동 시점**에 `ConfigError`로.
 - 모델 `content`는 `str` **또는** 콘텐츠 블록 리스트(실모델은 리스트) — 텍스트는 `api/sse.py`의 `content_text()`로 읽는다. `isinstance(content, str)`만 보면 실모델에서 조용히 빈 문자열이 된다.
+- 클라이언트(SSE `error`)·모델(에러 ToolMessage)에 보이는 예외 문자열은 `core/errors.describe_error()`(타입 + 첫 줄 200자)로만. 전체 traceback은 서버 로그(`exc_info`)에만.
+- 같은 thread_id의 그래프 실행은 `api/thread_locks.py`로 직렬화된다 — 스레드 상태를 바꾸는 새 엔드포인트는 반드시 그 락 안에서 돈다(DESIGN §5 메모).
 - 커밋 메시지: `T{n}: Summary`. **영어로 작성** (레포는 글로벌 계약 시장 대상 포트폴리오이므로 커밋 로그도 영어). 문서 본문은 한국어 유지.
 
 ## 가드레일 (위반 금지)
@@ -70,3 +72,4 @@ mcp_servers.json.example   # MCP 도구 연결 설정 예시
 - 2026-09-04: 최초 작성.
 - 2026-09-04: 커밋 메시지 언어를 영어로 확정(T12 커밋 메시지 수정 계기).
 - 2026-09-05: 온보딩 CLI(`lang-ai-agent init/serve/smoke`)·프로바이더 표·content_text 규칙 추가(T11 실모델 스모크 계기).
+- 2026-09-05: 에러 정제(`describe_error`)·스레드 직렬화 규칙 추가(코드 감사 001, T16 계기).

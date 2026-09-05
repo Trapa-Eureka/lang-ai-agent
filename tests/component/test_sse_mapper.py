@@ -6,6 +6,10 @@ also validate against the SSEEvent schema itself (T1) — the mapper's whole
 job is to stay inside that contract.
 """
 
+import logging
+from typing import Any
+
+import pytest
 from langchain_core.messages import AIMessage
 from pydantic import TypeAdapter
 
@@ -170,4 +174,33 @@ async def test_a_model_error_becomes_a_single_error_event(make_harness: MakeHarn
 
     assert len(events) == 1
     assert isinstance(events[0], ErrorEvent)
+    assert events[0].message.startswith("ScriptExhaustedError: ")  # describe_error: type + line
     assert "exhausted" in events[0].message
+
+
+async def test_a_failure_after_the_stream_is_still_exactly_one_error_event(
+    make_harness: MakeHarness, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """AUD-006/007: the state read that follows the stream is inside the
+    error boundary too — the client still gets one `error` (type + first
+    line, no path), and the traceback lands in the log, not the event."""
+    harness: GraphHarness = make_harness(script().final("All good").build())
+
+    async def boom(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("checkpoint db gone\nsqlite3.OperationalError: /var/data/checkpoints.db")
+
+    monkeypatch.setattr(harness.graph, "aget_state", boom)
+
+    with caplog.at_level(logging.ERROR, logger="lang_ai_agent.api"):
+        events = await harness.sse_run("hi")
+
+    kinds = [e.type for e in events]
+    assert kinds.count("error") == 1 and kinds[-1] == "error"
+    assert "usage" not in kinds and "done" not in kinds
+    assert "token" in kinds  # output had already streamed before the failure
+    error = events[-1]
+    assert isinstance(error, ErrorEvent)
+    assert error.message == "RuntimeError: checkpoint db gone"
+    record = next(r for r in caplog.records if r.getMessage() == "stream_failed")
+    assert record.exc_info is not None
+    assert record.__dict__["thread_id"] == "test-thread"

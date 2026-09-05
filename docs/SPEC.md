@@ -56,7 +56,7 @@ LangChain/LangGraph 에이전트 백엔드는 현재 글로벌 원격 계약 시
 | 버전 | 내용 | 전제 |
 |---|---|---|
 | v0.1 | 단일 에이전트 그래프 + 승인 게이트 + FastAPI SSE + 결정론 테스트 + 온보딩 CLI + GitHub Actions CI(`make check`) + PyPI 배포 + 공개 준비 | — |
-| v0.2 | PostgresSaver, supervisor 멀티에이전트, 실 retail-mcp 상시 연결 | v0.1 공개 |
+| v0.2 | PostgresSaver, supervisor 멀티에이전트, 실 retail-mcp 상시 연결, 다중 프로세스용 스레드 lease·effect 멱등키, 메시지 윈도/요약·체크포인트 정리·스레드 TTL, CI 의존성 취약점 검사 (DESIGN §11) | v0.1 공개 |
 | v0.3 | 평가 하니스(골든 궤적 회귀 + eval셋), 비용 리포트, Docker 배포 템플릿 | — |
 | v0.4 | MCP 코어 편입 판단 — 코어의 버티컬 에이전트들을 이 런타임 위로 이관 | 코어 MVP 검증 |
 

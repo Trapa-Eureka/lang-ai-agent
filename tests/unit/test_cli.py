@@ -127,6 +127,43 @@ def test_init_prefixes_a_bare_model_name_and_keeps_an_explicit_one(tmp_path: Pat
     assert _value_of((tmp_path / "explicit.env").read_text(), "MODEL") == "anthropic:claude-opus-5"
 
 
+def test_init_refuses_to_write_through_a_symlink(tmp_path: Path) -> None:
+    """AUD-009: `--force` must not follow a link and overwrite its target."""
+    target = tmp_path / "elsewhere.txt"
+    target.write_text("precious\n")
+    link = tmp_path / ".env"
+    link.symlink_to(target)
+    console = FakeConsole(answers=[], secrets=[])
+
+    code = run_init(link, force=True, console=console.as_console())
+
+    assert code == 1
+    assert target.read_text() == "precious\n"
+    assert any("symbolic link" in line for line in console.said)
+    assert console.prompts == []
+
+
+def test_init_write_is_atomic_when_the_final_rename_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """AUD-009: a failure mid-write leaves the old .env intact and no temp
+    file behind — never a truncated or half-written file."""
+    path = tmp_path / ".env"
+    path.write_text("OLD=1\n")
+
+    def disk_full(src: object, dst: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(cli.os, "replace", disk_full)
+    console = FakeConsole(answers=["1", ""], secrets=["sk-test"])
+
+    with pytest.raises(OSError, match="disk full"):
+        run_init(path, force=True, console=console.as_console())
+
+    assert path.read_text() == "OLD=1\n"
+    assert [p.name for p in tmp_path.iterdir()] == [".env"]
+
+
 def test_render_env_stays_within_the_env_example_contract() -> None:
     """Every key `init` writes must be one `.env.example` documents — the
     example is the contract (DESIGN §8), `init` just fills it in.

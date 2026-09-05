@@ -7,7 +7,7 @@
 - 완료 기준은 전부 기계 판정 가능. 완료 시 상태 `DONE(날짜)` + 커밋(`T{n}: 요약`).
 - 병렬 레인: T1 완료 후 **A(T2), B(T3), C(T4)** 는 서로 다른 worktree 에이전트로 동시 진행 가능. T5가 허브, 이후 **T6/T8/T9** 재병렬.
 
-의존 그래프: `T0 → T1 → {A: T2, B: T3, C: T4} → T5 → {T6, T8, T9} → T7(T5,T6) → T10(T7,T8,T9) → T11 → T13 → T14 → T15`. T12(문서)는 선행 의존 없음 — 독립 실행, 완료(DONE).
+의존 그래프: `T0 → T1 → {A: T2, B: T3, C: T4} → T5 → {T6, T8, T9} → T7(T5,T6) → T10(T7,T8,T9) → T11 → T16 → T13 → T14 → T15`. T12(문서)는 선행 의존 없음 — 독립 실행, 완료(DONE). T16(코드 감사 001 대응)은 사용자 코드 검수 결과로 T11 뒤·T13 앞에 삽입.
 
 ---
 
@@ -89,6 +89,13 @@
 ### T15 — 최종 통합 공개 · 상태: TODO · 의존: T11, T14
 - 목표: 루트 README에 PyPI 배지·설치 커맨드 추가, GitHub 공개 체크리스트(SPEC §7) 전항목 점검. LICENSE는 MIT로 확정되어 T13에서 추가되므로 여기서는 존재·저작권자 표기만 확인.
 - 완료 기준: [ ] README에 PyPI 배지 + `pip install`/`uv add` 안내 [ ] LICENSE(MIT) 존재·저작권자 확인 [ ] SPEC §7 기준 전항목 충족 확인
+
+### T16 — 코드 감사 001 대응 · 상태: DONE(2026-09-05) · 의존: T11 (T13 전 수행)
+- 목표: 사용자 코드 검수 보고서 `docs/001_ADVERSARIAL_CODE_AUDIT.md`(9건 + 추가 2건)를 코드로 재검증하고 타당한 항목을 수정, 남는 항목은 v0.2로 문서화(DESIGN §11).
+- 완료 기준: [x] 11건 전부 판정·조치(보고서 §5 표) [x] 회귀 테스트(TESTING §4 "감사 001 대응") [x] DESIGN §2/§3/§5/§6/§7/§11·SPEC §6·CLAUDE.md 반영 [x] check 통과(208 passed, 라인·분기 커버리지 100%, 경쟁 조건 테스트 5회 반복 안정)
+- 판정: 9건 전부 타당 — AUD-001/002(스레드별 직렬화 + 승인 대기 중 `/messages` 409), 003(`add_usage` 리듀서), 004(부분: `DELETE /threads/{id}`, 나머지 v0.2), 005(요청 한도·preview 요약), 006(SSE 예외 경계), 007(`describe_error`), 008(`compare_digest`), 009(원자적 `.env`). 추가 2건: MCP 기동 타임아웃 수정, `POST /threads` 미저장은 의도된 설계로 DESIGN §5에 명시.
+- 감사가 놓친 파생 결함: `effect_tools`가 원본 tool_call 대신 `pending.args_preview`를 실행 인자로 쓰고 있었다 — preview 요약과 함께 원본 재조회로 수정(DESIGN §2/§3).
+- 설계 메모: 락은 스트림 생성기 안에서 잡아 응답 수명과 같이 풀리고, 핸들러의 락 밖 검사(HTTP 상태)와 락 안 재검사(`error` 이벤트)를 분리했다. 본문 한도는 순수 ASGI 미들웨어(BaseHTTPMiddleware는 SSE 응답을 감싸 끊김 감지를 방해). `usage_after_call`은 `usage_of_call`(증분)로 대체.
 
 ---
 

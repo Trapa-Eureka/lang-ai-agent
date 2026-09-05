@@ -3,7 +3,7 @@
 from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import TypeAdapter
 
-from lang_ai_agent.core.state import AgentState, PendingAction, Usage
+from lang_ai_agent.core.state import AgentState, PendingAction, Usage, add_usage
 
 
 def test_pending_action_round_trips_through_json() -> None:
@@ -28,6 +28,24 @@ def test_usage_round_trips_through_json() -> None:
 
 def test_usage_defaults_to_zero() -> None:
     assert Usage() == Usage(input_tokens=0, output_tokens=0, calls=0)
+
+
+def test_add_usage_sums_every_field() -> None:
+    total = add_usage(
+        Usage(input_tokens=10, output_tokens=2, calls=1),
+        Usage(input_tokens=5, output_tokens=1, calls=1),
+    )
+
+    assert total == Usage(input_tokens=15, output_tokens=3, calls=2)
+
+
+def test_add_usage_with_an_empty_update_keeps_the_total() -> None:
+    """The `Usage()` every /messages request submits as input must add
+    nothing — the reducer is what stops it resetting the thread's total
+    (audit 001, AUD-003)."""
+    total = Usage(input_tokens=10, output_tokens=2, calls=1)
+
+    assert add_usage(total, Usage()) == total
 
 
 def test_agent_state_shape_validates_with_messages_and_pending() -> None:

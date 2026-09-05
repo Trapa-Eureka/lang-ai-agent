@@ -7,9 +7,10 @@
 # Both scoped to this file.
 """FastAPI assembly (docs/DESIGN.md §5) — wiring only, no agent logic.
 
-The four endpoints are thin: parse the request, find the thread's graph
-state, hand off to `core.graph` / `api.sse`, frame the result. Everything
-with behaviour worth testing on its own lives in those modules already.
+The five endpoints are thin: parse the request, find the thread's graph
+state, hand off to `core.graph` / `api.sse` / `api.thread_locks`, frame the
+result. Everything with behaviour worth testing on its own lives in those
+modules already.
 
 Two ways to get an app:
 
@@ -27,11 +28,12 @@ import uuid
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from langchain_core.messages import HumanMessage
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 from pydantic import BaseModel, Field, ValidationError
@@ -46,7 +48,9 @@ from lang_ai_agent.adapters.llm import build_chat_model, missing_key_error
 from lang_ai_agent.adapters.mcp_loader import load_mcp_servers_config, load_mcp_tool_specs
 from lang_ai_agent.adapters.observability import apply_langsmith_tracing, configure_logging
 from lang_ai_agent.api.auth import require_bearer_token
+from lang_ai_agent.api.limits import MAX_COMMENT_CHARS, MAX_MESSAGE_CHARS, BodySizeLimit
 from lang_ai_agent.api.sse import SSEEvent, content_text, stream_sse_events
+from lang_ai_agent.api.thread_locks import ThreadLocks, serialized
 from lang_ai_agent.core.graph import build_graph
 from lang_ai_agent.core.state import AgentState, PendingAction, Usage
 from lang_ai_agent.core.tools_spec import merge_tool_specs
@@ -112,12 +116,12 @@ class ThreadCreated(BaseModel):
 
 
 class MessageRequest(BaseModel):
-    content: str = Field(min_length=1)
+    content: str = Field(min_length=1, max_length=MAX_MESSAGE_CHARS)
 
 
 class ApproveRequest(BaseModel):
     approved: bool
-    comment: str | None = None
+    comment: str | None = Field(default=None, max_length=MAX_COMMENT_CHARS)
 
 
 class ThreadState(BaseModel):
@@ -148,8 +152,13 @@ def _sse(events: AsyncIterator[SSEEvent]) -> AsyncGenerator[ServerSentEvent, Non
 def create_app(graph_factory: GraphFactory, bearer_token: str) -> FastAPI:
     """Assemble the API around a graph that `graph_factory` opens for the
     app's lifetime (the checkpointer behind it is an async context manager).
+
+    Every run that changes a thread — `/messages`, `/approve`, `DELETE` —
+    happens under that thread's lock (`api/thread_locks.py`), so runs on
+    one thread never overlap; runs on different threads still do.
     """
     authed = Depends(require_bearer_token(bearer_token))
+    locks = ThreadLocks()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -158,6 +167,7 @@ def create_app(graph_factory: GraphFactory, bearer_token: str) -> FastAPI:
             yield
 
     app = FastAPI(title="lang_ai_agent", lifespan=lifespan)
+    app.add_middleware(BodySizeLimit)
 
     def graph_of(request: Request) -> AgentGraph:
         return request.app.state.graph
@@ -174,6 +184,14 @@ def create_app(graph_factory: GraphFactory, bearer_token: str) -> FastAPI:
             )
         return state
 
+    async def pending_tool_call_id(graph: AgentGraph, thread_id: str) -> str | None:
+        """The tool_call_id the thread is waiting to have approved, or None."""
+        state = await graph.aget_state(thread_config(thread_id))
+        if not state.interrupts:
+            return None
+        pending: PendingAction = state.interrupts[0].value["action"]
+        return pending.tool_call_id
+
     @app.post("/threads", response_model=ThreadCreated, dependencies=[authed])
     async def create_thread() -> ThreadCreated:
         # A thread only comes into existence in the checkpointer on its first
@@ -184,12 +202,38 @@ def create_app(graph_factory: GraphFactory, bearer_token: str) -> FastAPI:
     async def send_message(
         thread_id: str, body: MessageRequest, request: Request
     ) -> EventSourceResponse:
+        graph = graph_of(request)
+        if await pending_tool_call_id(graph, thread_id) is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Thread {thread_id!r} is waiting for approval. Answer it with "
+                    "POST /threads/{id}/approve first (approved=false with a comment cancels "
+                    "the pending action), then send the next message."
+                ),
+            )
         initial: AgentState = {
             "messages": [HumanMessage(content=body.content)],
             "pending": None,
             "usage": Usage(),
         }
-        events = stream_sse_events(graph_of(request), initial, thread_config(thread_id))
+
+        async def still_free() -> str | None:
+            # Re-checked under the thread lock: a message queued behind another
+            # run may find the thread paused for approval by the time it starts.
+            if await pending_tool_call_id(graph, thread_id) is not None:
+                return (
+                    "The thread is now waiting for approval; approve or reject it before "
+                    "sending another message."
+                )
+            return None
+
+        events = serialized(
+            locks,
+            thread_id,
+            precheck=still_free,
+            run=lambda: stream_sse_events(graph, initial, thread_config(thread_id)),
+        )
         return EventSourceResponse(_sse(events))
 
     @app.get("/threads/{thread_id}/state", response_model=ThreadState, dependencies=[authed])
@@ -222,9 +266,49 @@ def create_app(graph_factory: GraphFactory, bearer_token: str) -> FastAPI:
                     "approve or reject. Send it a message that triggers an effect tool first."
                 ),
             )
+        expected: PendingAction = state.interrupts[0].value["action"]
         resume = Command(resume={"approved": body.approved, "comment": body.comment})
-        events = stream_sse_events(graph, resume, thread_config(thread_id))
+
+        async def still_pending() -> str | None:
+            # Re-checked under the thread lock: a concurrent /approve for the
+            # same action may already have consumed it (audit 001, AUD-001).
+            if await pending_tool_call_id(graph, thread_id) == expected.tool_call_id:
+                return None
+            return (
+                "This approval was already handled, or the pending action changed, since "
+                "this request was made; nothing was resumed. Check GET /threads/{id}/state."
+            )
+
+        events = serialized(
+            locks,
+            thread_id,
+            precheck=still_pending,
+            run=lambda: stream_sse_events(graph, resume, thread_config(thread_id)),
+        )
         return EventSourceResponse(_sse(events))
+
+    @app.delete(
+        "/threads/{thread_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[authed]
+    )
+    async def delete_thread(thread_id: str, request: Request) -> Response:
+        """Drop every checkpoint of the thread — v0.1's one lifecycle control
+        (DESIGN §5, §11).
+        """
+        graph = graph_of(request)
+        async with locks.hold(thread_id):
+            await existing_state(graph, thread_id)
+            # cast: langgraph declares `Pregel.checkpointer` with an unparameterized
+            # `BaseCheckpointSaver`, which pyright reads as `[Unknown]`.
+            checkpointer = cast("BaseCheckpointSaver[Any] | bool | None", graph.checkpointer)
+            if not isinstance(checkpointer, BaseCheckpointSaver):  # pragma: no cover - defensive
+                raise HTTPException(
+                    status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                    detail=(
+                        "This server runs without a checkpointer; there is no history to delete."
+                    ),
+                )
+            await checkpointer.adelete_thread(thread_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     return app
 
