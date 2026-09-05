@@ -129,6 +129,7 @@ lang-ai-agent --help
 | 날짜 | 태그 | 대상 | 결과 |
 |---|---|---|---|
 | 2026-09-05 | `v0.1.0rc1` (main `e21d000`) | TestPyPI | Publish run 33956057465 성공(build → testpypi). 격리 venv에 `--index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/`로 설치, `lang-ai-agent --help`·버전·MIT 확인. pending publisher가 첫 업로드로 프로젝트 `lang-ai-agent`를 생성함 (T13) |
+| 2026-09-05 | `v0.1.0` (main `bc1ad58`) | TestPyPI → **PyPI** | Publish run 33957885151 성공(build → testpypi → pypi). `pypi` job은 환경 `pypi`의 Required reviewer(사용자)가 Actions에서 "Review deployments → Approve"로 승인한 뒤 실행 — WORKFLOW §4의 사람 승인 게이트 첫 실행. 격리 환경(`uv run --isolated --no-project --with "lang-ai-agent==0.1.0"`)에 PyPI에서 설치, 버전 `0.1.0`·`License-Expression: MIT`·`lang-ai-agent --help` 확인. pypi.org에 wheel+sdist 등록. 이 배포물의 README는 T15 이전 문구("first release are next")를 담고 있어 다음 버전에서 갱신된다 (T14) |
 
 ## 6. 문제 해결
 
