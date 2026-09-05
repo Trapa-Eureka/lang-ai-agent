@@ -103,7 +103,7 @@ Dependency graph: `T0 → T1 → {A: T2, B: T3, C: T4} → T5 → {T6, T8, T9} �
   | License MIT + `LICENSE` | Met — T13 |
 
 - Also tidied: the README Status line became "v0.1.0 released on PyPI", the License section `[MIT](LICENSE) © 2026 Trapa-Eureka`, the Quickstart and Smoke commands are written for an installed package (no `uv run` prefix) and the checkout path moved to Development. The README reaches the PyPI project page with the next version (0.1.1 or later; the 0.1.0 distribution's README cannot be re-uploaded — RELEASE.md §3). No `src/` code changes.
-- Recommendation (human, optional): the GitHub repo's About description and website are empty (checked with `gh repo view`). Filling them with the pyproject description and the PyPI link completes the public page.
+- GitHub About (human, done 2026-09-05): the repo description now carries the README's one-line summary and the website points at https://pypi.org/project/lang-ai-agent/ (verified with `gh repo view`). Topics are still empty — optional.
 
 ### T16 — Audit 001 response · Status: DONE(2026-09-05) · Depends on: T11 (done before T13)
 - Goal: re-verify the user's code review report `docs/001_ADVERSARIAL_CODE_AUDIT.md` (nine findings + two extras) against the code, fix the valid ones, and document what remains for v0.2 (DESIGN §11).
