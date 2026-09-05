@@ -11,8 +11,10 @@ whole flow runs in tests without a TTY; `main()` wires the real ones.
 
 import argparse
 import getpass
+import os
 import secrets
 import sys
+import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -80,10 +82,38 @@ def ask_model(console: Console, provider: Provider) -> str:
     return model if ":" in model else f"{provider.id}:{model}"
 
 
+def _write_private(path: Path, content: str) -> None:
+    """Write `content` to `path` atomically, readable by the owner only.
+
+    A temp file in the same directory (`mkstemp` creates it with mode 0600,
+    so the key is never on disk world-readable), fsync, then `os.replace`:
+    a crash mid-write leaves either the old file or the complete new one,
+    never a truncated `.env` (audit 001, AUD-009).
+    """
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 def run_init(path: Path, *, force: bool, console: Console) -> int:
     """Write `path` (normally `.env`) from an interactive session. Returns
-    the process exit code: 1 when refusing to overwrite an existing file.
+    the process exit code: 1 when refusing to overwrite an existing file or
+    to write through a symbolic link.
     """
+    if path.is_symlink():
+        console.say(
+            f"{path} is a symbolic link — refusing to write through it. Remove the link, "
+            "or pass a real file path with --path."
+        )
+        return 1
     if path.exists() and not force:
         console.say(
             f"{path} already exists — not overwriting. Re-run with --force to replace it, "
@@ -94,11 +124,7 @@ def run_init(path: Path, *, force: bool, console: Console) -> int:
     api_key = ask_api_key(console, provider)
     model = ask_model(console, provider)
     bearer_token = secrets.token_urlsafe(32)
-    # Restrict permissions *before* the key is written, so there is no window
-    # in which the file exists with the default (world-readable) mode.
-    path.touch(mode=0o600, exist_ok=True)
-    path.chmod(0o600)
-    path.write_text(render_env(provider, api_key, model, bearer_token))
+    _write_private(path, render_env(provider, api_key, model, bearer_token))
     console.say(f"Wrote {path} (mode 0600) for MODEL={model}.")
     console.say(f"APP_BEARER_TOKEN={bearer_token}")
     console.say("Clients send it as `Authorization: Bearer <token>`. Next: `lang-ai-agent serve`.")

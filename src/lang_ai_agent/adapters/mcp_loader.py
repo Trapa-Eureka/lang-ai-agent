@@ -17,6 +17,7 @@ v0.1 supports the `stdio` transport only (DESIGN §6); the other transports
 `MultiServerMCPClient` knows are a v0.2 extension.
 """
 
+import asyncio
 import json
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -26,9 +27,13 @@ from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
 
+from lang_ai_agent.core.errors import describe_error
 from lang_ai_agent.core.tools_spec import ToolSpec, merge_tool_specs
 
 EXAMPLE_FILE = "mcp_servers.json.example"
+
+DEFAULT_STARTUP_TIMEOUT_S = 30.0
+"""How long `load_mcp_tool_specs` waits for one server to list its tools."""
 
 
 class McpConfigError(ValueError):
@@ -149,17 +154,35 @@ def _real_client(connections: dict[str, Any]) -> ToolClient:  # pragma: no cover
 
 
 async def load_mcp_tool_specs(
-    config: McpServersConfig, *, client_factory: ClientFactory = _real_client
+    config: McpServersConfig,
+    *,
+    client_factory: ClientFactory = _real_client,
+    startup_timeout_s: float = DEFAULT_STARTUP_TIMEOUT_S,
 ) -> list[ToolSpec]:
     """Connect to every configured server and return its tools as ToolSpecs.
 
     Each server's tools are fetched with `get_tools(server_name=...)` so the
     right approval policy applies; `merge_tool_specs` then refuses a tool
-    name that two servers both expose.
+    name that two servers both expose. A server that doesn't answer within
+    `startup_timeout_s`, or fails to start at all, fails *startup* with an
+    `McpConfigError` naming it — a stuck server must not hold the whole
+    app's startup hostage (audit 001).
     """
     client = client_factory({name: server.connection() for name, server in config.items()})
-    groups = [
-        map_tools_to_specs(await client.get_tools(server_name=name), server.approval)
-        for name, server in config.items()
-    ]
+    groups: list[list[ToolSpec]] = []
+    for name, server in config.items():
+        try:
+            tools = await asyncio.wait_for(client.get_tools(server_name=name), startup_timeout_s)
+        except TimeoutError as exc:
+            raise McpConfigError(
+                f"MCP server {name!r} did not return its tools within {startup_timeout_s:g}s "
+                f"(command: {server.command}). Fix: run the command by hand to check that it "
+                "starts and speaks MCP on stdio, or raise startup_timeout_s."
+            ) from exc
+        except Exception as exc:
+            raise McpConfigError(
+                f"MCP server {name!r} failed to start or list its tools: {describe_error(exc)}. "
+                "Fix: check its command/args (and env) in mcp_servers.json and run it by hand."
+            ) from exc
+        groups.append(map_tools_to_specs(tools, server.approval))
     return merge_tool_specs(*groups)

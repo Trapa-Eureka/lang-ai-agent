@@ -99,3 +99,8 @@ async def test_a_failing_tool_is_logged_with_ok_false(caplog: pytest.LogCaptureF
     # `extra=` fields are dynamic attributes on the record, not declared ones
     assert tool_records[0].__dict__["ok"] is False
     assert tool_records[0].__dict__["thread_id"] == "obs-fail"
+    # the traceback lives on the log record, not in what the model was told (AUD-007)
+    assert tool_records[0].levelno == logging.WARNING
+    assert tool_records[0].exc_info is not None
+    assert tool_records[0].__dict__["error_type"] == "RuntimeError"
+    assert "injected failure" in JsonFormatter().format(tool_records[0])

@@ -8,8 +8,10 @@ driven through httpx's ASGI transport, no server process).
 2. the messages stream's event order: token* -> tool_start/end* -> (interrupt | usage -> done)
 3. after an interrupt, GET state exposes pending; approve then streams through to done
 4. an unknown thread_id -> 404 with a fix in the message
+5. audit 001 (T16): one run per thread at a time, request limits, thread deletion
 """
 
+import asyncio
 import json
 import os
 from collections.abc import AsyncGenerator, Sequence
@@ -21,12 +23,15 @@ import pytest
 from fastapi import FastAPI
 from langchain_core.messages import AIMessage
 
+from lang_ai_agent.adapters.checkpoint import thread_config
 from lang_ai_agent.api.app import ConfigError, create_app, create_default_app
 from lang_ai_agent.api.auth import require_bearer_token
+from lang_ai_agent.api.limits import MAX_BODY_BYTES, MAX_MESSAGE_CHARS
 from tests.component.conftest import GraphHarness
 from tests.helpers.http_client import AUTH_HEADERS as AUTH
 from tests.helpers.http_client import TEST_TOKEN as TOKEN
 from tests.helpers.http_client import api_client as _client
+from tests.helpers.http_client import kinds, request_sse, token_text
 from tests.helpers.http_client import read_sse as _stream_events
 from tests.helpers.scripted_chat_model import script
 
@@ -189,6 +194,173 @@ async def test_empty_message_content_is_rejected() -> None:
     app, _ = _app_for(_SEND_EMAIL_SCRIPT)
     async with _client(app) as client:
         response = await client.post("/threads/any/messages", json={"content": ""}, headers=AUTH)
+
+    assert response.status_code == 422
+
+
+# --- 5. audit 001 (T16): one run per thread, limits, deletion ---------------
+
+
+async def test_messages_while_awaiting_approval_is_409_with_a_fix() -> None:
+    """AUD-002: a new message can't fork a thread that is paused for approval."""
+    app, harness = _app_for(_SEND_EMAIL_SCRIPT)
+    async with _client(app) as client:
+        thread_id = (await client.post("/threads", headers=AUTH)).json()["thread_id"]
+        await _stream_events(
+            client, "POST", f"/threads/{thread_id}/messages", {"content": "reorder please"}
+        )
+
+        response = await client.post(
+            f"/threads/{thread_id}/messages", json={"content": "and one more"}, headers=AUTH
+        )
+
+    assert response.status_code == 409
+    assert "/approve" in response.json()["detail"]
+    assert harness.effects.send_email_calls == []
+
+
+async def test_concurrent_approvals_of_one_action_run_the_effect_once() -> None:
+    """AUD-001: two /approve for the same pending action — exactly one resumes
+    the graph and sends. The other is told there is nothing left: 409 if it
+    arrived after the first had finished, otherwise a single `error` event
+    from the re-check under the thread lock."""
+    app, harness = _app_for(
+        script()
+        .tool_call(
+            "send_reorder_email", {"to": "ops@example.com", "subject": "Reorder", "body": "b"}
+        )
+        .final("Sent it.")
+        .build()
+    )
+    async with _client(app) as client:
+        thread_id = (await client.post("/threads", headers=AUTH)).json()["thread_id"]
+        await _stream_events(
+            client, "POST", f"/threads/{thread_id}/messages", {"content": "reorder please"}
+        )
+
+        results = await asyncio.gather(
+            request_sse(client, "POST", f"/threads/{thread_id}/approve", {"approved": True}),
+            request_sse(client, "POST", f"/threads/{thread_id}/approve", {"approved": True}),
+        )
+
+    assert len(harness.effects.send_email_calls) == 1
+    winners = [r for r in results if r[0] == 200 and kinds(r[1])[-1:] == ["done"]]
+    losers = [r for r in results if r not in winners]
+    assert len(winners) == 1 and len(losers) == 1
+    status, events = losers[0]
+    assert status == 409 or kinds(events) == ["error"]
+    harness.model.assert_exhausted()
+
+
+async def test_concurrent_messages_on_one_thread_run_one_after_another() -> None:
+    """AUD-002/003: two messages racing on one thread serialize (H, A, H, A)
+    and the thread's usage is the sum of both turns, not the last one."""
+    app, harness = _app_for(
+        script()
+        .final("first reply", input_tokens=10, output_tokens=1)
+        .final("second reply", input_tokens=20, output_tokens=2)
+        .build()
+    )
+    async with _client(app) as client:
+        thread_id = (await client.post("/threads", headers=AUTH)).json()["thread_id"]
+
+        first, second = await asyncio.gather(
+            _stream_events(client, "POST", f"/threads/{thread_id}/messages", {"content": "one"}),
+            _stream_events(client, "POST", f"/threads/{thread_id}/messages", {"content": "two"}),
+        )
+        state = (await client.get(f"/threads/{thread_id}/state", headers=AUTH)).json()
+        messages = (await harness.graph.aget_state(thread_config(thread_id))).values["messages"]
+
+    assert sorted([token_text(first), token_text(second)]) == ["first reply", "second reply"]
+    assert [type(m).__name__ for m in messages] == [
+        "HumanMessage",
+        "AIMessage",
+        "HumanMessage",
+        "AIMessage",
+    ]
+    assert state["message_count"] == 4
+    assert state["usage"] == {"input_tokens": 30, "output_tokens": 3, "calls": 2}
+    harness.model.assert_exhausted()
+
+
+async def test_a_message_queued_behind_a_run_that_pauses_gets_one_error_event() -> None:
+    """AUD-002: two messages race on one thread. Whichever runs first pauses
+    the thread for approval; the one queued behind it is refused by the
+    re-check under the lock — a single `error` event — instead of being run
+    on top of the interrupt (or 409 if it only arrived after the pause)."""
+    app, harness = _app_for(
+        script()
+        .tool_call(
+            "send_reorder_email", {"to": "ops@example.com", "subject": "Reorder", "body": "b"}
+        )
+        .build()
+    )
+    async with _client(app) as client:
+        thread_id = (await client.post("/threads", headers=AUTH)).json()["thread_id"]
+
+        results = await asyncio.gather(
+            request_sse(client, "POST", f"/threads/{thread_id}/messages", {"content": "reorder"}),
+            request_sse(client, "POST", f"/threads/{thread_id}/messages", {"content": "hello"}),
+        )
+
+    paused = [r for r in results if r[0] == 200 and kinds(r[1])[-1:] == ["interrupt"]]
+    refused = [r for r in results if r not in paused]
+    assert len(paused) == 1 and len(refused) == 1
+    status, events = refused[0]
+    assert status == 409 or kinds(events) == ["error"]
+    assert harness.effects.send_email_calls == []
+    harness.model.assert_exhausted()
+
+
+async def test_delete_thread_removes_its_history() -> None:
+    app, _ = _app_for(script().final("bye").build())
+    async with _client(app) as client:
+        thread_id = (await client.post("/threads", headers=AUTH)).json()["thread_id"]
+        await _stream_events(client, "POST", f"/threads/{thread_id}/messages", {"content": "hi"})
+        assert (await client.get(f"/threads/{thread_id}/state", headers=AUTH)).status_code == 200
+
+        deleted = await client.delete(f"/threads/{thread_id}", headers=AUTH)
+        gone = await client.get(f"/threads/{thread_id}/state", headers=AUTH)
+        again = await client.delete(f"/threads/{thread_id}", headers=AUTH)
+
+    assert deleted.status_code == 204
+    assert gone.status_code == 404
+    assert again.status_code == 404
+
+
+async def test_delete_requires_auth_and_an_existing_thread() -> None:
+    app, _ = _app_for(_SEND_EMAIL_SCRIPT)
+    async with _client(app) as client:
+        unauthorized = await client.delete("/threads/x")
+        missing = await client.delete("/threads/never-created", headers=AUTH)
+
+    assert unauthorized.status_code == 401
+    assert missing.status_code == 404
+
+
+async def test_an_oversized_body_is_refused_before_it_is_parsed() -> None:
+    """AUD-005: Content-Length over the limit is 413 from the ASGI middleware."""
+    app, _ = _app_for(_SEND_EMAIL_SCRIPT)
+    huge = json.dumps({"content": "a" * (MAX_BODY_BYTES + 1)}).encode()
+    async with _client(app) as client:
+        response = await client.post(
+            "/threads/x/messages",
+            content=huge,
+            headers={**AUTH, "content-type": "application/json"},
+        )
+
+    assert response.status_code == 413
+    assert "limit" in response.json()["detail"]
+
+
+async def test_over_long_message_content_is_422() -> None:
+    app, _ = _app_for(_SEND_EMAIL_SCRIPT)
+    async with _client(app) as client:
+        response = await client.post(
+            "/threads/x/messages",
+            json={"content": "a" * (MAX_MESSAGE_CHARS + 1)},
+            headers=AUTH,
+        )
 
     assert response.status_code == 422
 

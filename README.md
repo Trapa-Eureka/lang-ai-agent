@@ -54,6 +54,7 @@ The response is a Server-Sent Events stream: `tool_start`/`tool_end` for `check_
 | `POST /threads/{id}/messages` | `{content}` | Run the graph; **SSE stream** |
 | `GET /threads/{id}/state` | — | `last_message`, `pending` action, `usage`, `awaiting_approval` |
 | `POST /threads/{id}/approve` | `{approved, comment?}` | Resume from the interrupt; **SSE stream** |
+| `DELETE /threads/{id}` | — | Delete the thread's history (every checkpoint) |
 
 SSE events (Pydantic-typed, discriminated on `type`): `token` · `tool_start` · `tool_end` · `interrupt` (pending action + draft) · `usage` · `done` · `error`. A stream ends with either one `interrupt` or `usage` → `done`.
 
@@ -80,6 +81,7 @@ The smoke always runs dry-run, whatever `.env` says, and costs three to four mod
 ## Why it is built this way
 
 - **Approval as topology, not a flag.** Side-effecting tools are reachable only through the `approval` node, and a graph-structure test enforces it. Sending is double-gated: the interrupt *and* `SEND_MODE=live`.
+- **One run per thread at a time.** `/messages`, `/approve` and `DELETE` on the same thread are serialized in-process, so a duplicated approval can never run the effect twice, and a message sent while the thread waits for approval gets a 409 instead of forking its history.
 - **The model is a script in tests.** `ScriptedChatModel` replays a fixed sequence of `AIMessage`s (tool calls included) and fails loudly if the script is exhausted or diverges. With the model scripted, the graph is a state machine and every path — approve, reject-and-revise, tool failure, restart mid-interrupt — is a deterministic test. Real models appear only in the smoke.
 - **State stays small.** State is serialized at every checkpoint, so it holds messages and minimal metadata; large tool results are summarized before they enter it.
 - **Static types as the cheapest feedback loop.** pyright strict + Pydantic v2 at every boundary (requests, model output, MCP responses), no `Any` returns, and every `# type: ignore` carries a reason.

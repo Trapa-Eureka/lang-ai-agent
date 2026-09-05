@@ -3,6 +3,7 @@ safe/effect mapping, with no real server process anywhere (docs/TESTING.md
 §4 — a fake client stands in for MultiServerMCPClient).
 """
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -182,3 +183,40 @@ async def test_two_servers_exposing_the_same_tool_name_are_refused() -> None:
 
     with pytest.raises(ValueError, match="Duplicate tool name"):
         await load_mcp_tool_specs(config, client_factory=lambda _c: client)
+
+
+# --- startup timeout / server failure (audit 001) -----------------------------
+
+
+class _HangingClient:
+    async def get_tools(self, *, server_name: str | None = None) -> list[BaseTool]:
+        await asyncio.sleep(10)
+        return []  # pragma: no cover - the timeout fires long before this
+
+
+class _BrokenClient:
+    async def get_tools(self, *, server_name: str | None = None) -> list[BaseTool]:
+        raise RuntimeError(
+            "spawn failed: /usr/local/bin/npx: No such file\n  at Object.<anonymous>"
+        )
+
+
+async def test_a_server_that_never_answers_fails_startup_with_a_timeout_message() -> None:
+    config = parse_mcp_servers_config(json.dumps({"retail": _RETAIL}))
+
+    with pytest.raises(McpConfigError, match=r"'retail' did not return its tools within 0.01s"):
+        await load_mcp_tool_specs(
+            config, client_factory=lambda _c: _HangingClient(), startup_timeout_s=0.01
+        )
+
+
+async def test_a_server_that_fails_to_start_names_it_and_keeps_the_first_line_only() -> None:
+    config = parse_mcp_servers_config(json.dumps({"retail": _RETAIL}))
+
+    with pytest.raises(McpConfigError, match=r"'retail' failed to start") as exc_info:
+        await load_mcp_tool_specs(config, client_factory=lambda _c: _BrokenClient())
+
+    message = str(exc_info.value)
+    assert "RuntimeError: spawn failed" in message
+    assert "at Object" not in message  # describe_error: first line only
+    assert "mcp_servers.json" in message  # and the fix

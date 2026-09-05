@@ -15,6 +15,7 @@ DESIGN promises: `token*` then `tool_start`/`tool_end`* then either
 # tests/unit/test_checkpoint.py). Scoped to this file; every other file
 # keeps the check.
 
+import logging
 import time
 from collections.abc import AsyncIterator
 from typing import Annotated, Any, Literal
@@ -24,7 +25,10 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, Interrupt
 from pydantic import BaseModel, Field
 
+from lang_ai_agent.core.errors import describe_error
 from lang_ai_agent.core.state import AgentState, PendingAction, Usage
+
+logger = logging.getLogger("lang_ai_agent.api")
 
 
 class TokenEvent(BaseModel):
@@ -138,9 +142,12 @@ async def stream_sse_events(
     `tool_start`/`tool_end`* (one pair per tool invocation, correlated by
     `astream_events`' own run id — see `ToolStartEvent`) then, once the
     stream itself ends, either one `interrupt` (the graph paused for
-    approval) or one `usage` followed by `done`. Any exception escaping the
-    stream becomes a single `error` event instead of propagating — this is
-    the boundary between "the graph failed" and "the client finds out".
+    approval) or one `usage` followed by `done`. Any exception — from the
+    stream itself or from the state read that follows it — becomes exactly
+    one `error` event instead of propagating: this is the boundary between
+    "the graph failed" and "the client finds out". The client gets
+    `describe_error`'s type-and-first-line; the traceback goes to the
+    `lang_ai_agent.api` log with the thread_id (audit 001, AUD-006/007).
     """
     tool_started_at: dict[str, float] = {}
 
@@ -165,14 +172,31 @@ async def stream_sse_events(
                     )
                 case _:
                     pass  # every other astream_events event is internal graph plumbing
+        # Still inside the boundary: the state read and the payload parsing
+        # below can fail too (a checkpoint DB error, a malformed interrupt).
+        state = await graph.aget_state(config)
+        interrupt = _first_interrupt(state.interrupts)
+        terminal: list[SSEEvent]
+        if interrupt is not None:
+            terminal = [
+                InterruptEvent(
+                    pending=interrupt.value["action"], draft=interrupt.value.get("draft")
+                )
+            ]
+        else:
+            terminal = [UsageEvent(usage=state.values["usage"]), DoneEvent()]
     except Exception as exc:  # broad on purpose: any failure becomes one error event, not a crash
-        yield ErrorEvent(message=str(exc))
+        logger.error(
+            "stream_failed",
+            extra={"thread_id": _thread_id_of(config), "error_type": type(exc).__name__},
+            exc_info=exc,
+        )
+        yield ErrorEvent(message=describe_error(exc))
         return
 
-    state = await graph.aget_state(config)
-    interrupt = _first_interrupt(state.interrupts)
-    if interrupt is not None:
-        yield InterruptEvent(pending=interrupt.value["action"], draft=interrupt.value.get("draft"))
-        return
-    yield UsageEvent(usage=state.values["usage"])
-    yield DoneEvent()
+    for event in terminal:
+        yield event
+
+
+def _thread_id_of(config: RunnableConfig) -> str:
+    return str(config.get("configurable", {}).get("thread_id", "-"))
