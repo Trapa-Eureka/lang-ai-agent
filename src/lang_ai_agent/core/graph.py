@@ -24,23 +24,31 @@ The one invariant this whole repo exists to demonstrate (CLAUDE.md guardrail
 1): `effect_tools` is reachable *only* from `approval`. See
 tests/component/test_approval_gate.py for the structural proof via
 `get_graph()`.
+
+Observability (DESIGN §7): every node run and every tool call logs one
+structured record on the `lang_ai_agent.graph` logger with `thread_id`,
+`node`/`tool` and `duration_ms` in `extra=`; the agent node folds each
+model response's `usage_metadata` into `state["usage"]`.
 """
 
 import asyncio
 import json
-from collections.abc import Sequence
+import logging
+import time
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, AnyMessage, ToolMessage
 from langchain_core.messages.tool import ToolCall
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import interrupt
 
-from lang_ai_agent.core.state import AgentState, PendingAction
+from lang_ai_agent.core.state import AgentState, PendingAction, Usage
 from lang_ai_agent.core.tools_spec import ToolSpec
 
 AGENT = "agent"
@@ -48,11 +56,39 @@ SAFE_TOOLS = "safe_tools"
 APPROVAL = "approval"
 EFFECT_TOOLS = "effect_tools"
 
+logger = logging.getLogger("lang_ai_agent.graph")
+
+type Clock = Callable[[], float]
+"""A monotonic-seconds source. `time.monotonic` in production; tests inject
+`tests/helpers/fixed_clock.py` for exact `duration_ms` assertions."""
+
+type _Node = Callable[[AgentState, RunnableConfig], Awaitable[dict[str, Any]]]
+
 
 class InvalidToolCallError(RuntimeError):
     """A tool_call this graph can't safely execute: an unregistered tool
     name, or a call missing the id needed to correlate its ToolMessage.
     """
+
+
+def usage_after_call(usage: Usage, response: AIMessage) -> Usage:
+    """Fold one model response into the running total (DESIGN §7).
+
+    Reads the response's `usage_metadata` (LangChain's provider-neutral
+    token counts — what a model callback would see) rather than hanging a
+    callback off the model, so this stays a pure function on the node's
+    own inputs. A response without usage_metadata still counts as a call.
+    """
+    metadata = response.usage_metadata
+    return Usage(
+        input_tokens=usage.input_tokens + (metadata["input_tokens"] if metadata else 0),
+        output_tokens=usage.output_tokens + (metadata["output_tokens"] if metadata else 0),
+        calls=usage.calls + 1,
+    )
+
+
+def _thread_id(config: RunnableConfig) -> str:
+    return str(config.get("configurable", {}).get("thread_id", "-"))
 
 
 def _find_last_ai_message_index(messages: Sequence[AnyMessage]) -> int | None:
@@ -126,39 +162,85 @@ def _draft_from_args(args: dict[str, Any]) -> str:
     return json.dumps(args, ensure_ascii=False)
 
 
-async def _run_tool_call(tool: BaseTool, call: ToolCall) -> ToolMessage:
+async def _run_tool_call(
+    tool: BaseTool, call: ToolCall, *, thread_id: str, clock: Clock
+) -> ToolMessage:
     """Invoke one tool call, turning an exception into an error ToolMessage
-    instead of crashing the graph (docs/TESTING.md §4).
+    instead of crashing the graph (docs/TESTING.md §4), and log it.
     """
+    started = clock()
     try:
         result = await tool.ainvoke(call)
+        ok = True
     except Exception as exc:  # broad on purpose: a tool failure becomes a ToolMessage, not a crash
-        return ToolMessage(
+        result = ToolMessage(
             content=f"Tool {call['name']!r} failed: {exc}",
             tool_call_id=_require_tool_call_id(call),
             name=call["name"],
         )
+        ok = False
+    logger.info(
+        "tool",
+        extra={
+            "thread_id": thread_id,
+            "tool": call["name"],
+            "tool_call_id": call["id"],
+            "duration_ms": (clock() - started) * 1000,
+            "ok": ok,
+        },
+    )
     return result
+
+
+def _instrumented(name: str, node: _Node, clock: Clock):
+    """Wrap a node so each completed run logs `node` + `duration_ms`.
+
+    The wrapper keeps the explicit `(state, config)` signature because
+    LangGraph decides whether to inject `config` by inspecting it — and the
+    return type is left to inference for the same reason: a bare
+    `Callable[[AgentState, RunnableConfig], ...]` annotation erases the
+    parameter *names*, which LangGraph's StateNode protocol matches on.
+    A run that pauses at `interrupt()` unwinds by exception and logs
+    nothing — the completed run after resume is the one that gets timed.
+    """
+
+    async def run(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+        started = clock()
+        result = await node(state, config)
+        logger.info(
+            "node",
+            extra={
+                "thread_id": _thread_id(config),
+                "node": name,
+                "duration_ms": (clock() - started) * 1000,
+            },
+        )
+        return result
+
+    return run
 
 
 def build_graph(
     model: BaseChatModel,
     tool_specs: Sequence[ToolSpec],
     checkpointer: BaseCheckpointSaver[Any] | None = None,
+    *,
+    clock: Clock = time.monotonic,
 ) -> CompiledStateGraph[AgentState, None, AgentState, AgentState]:
     """Assemble and compile the v0.1 agent graph (DESIGN §3).
 
     `checkpointer` is optional only for ad-hoc/one-off use — pass one (see
     adapters/checkpoint.py) for anything that needs interrupts to survive
     past a single `ainvoke` call, which in practice means every real use.
+    `clock` only feeds the structured logs' `duration_ms`.
     """
     tool_specs_by_name = {spec.tool.name: spec for spec in tool_specs}
     tools_by_name = {spec.tool.name: spec.tool for spec in tool_specs}
     bound_model = model.bind_tools([spec.tool for spec in tool_specs])
 
-    async def agent_node(state: AgentState) -> dict[str, Any]:
+    async def agent_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         response = await bound_model.ainvoke(state["messages"])
-        return {"messages": [response]}
+        return {"messages": [response], "usage": usage_after_call(state["usage"], response)}
 
     def route_after_agent(state: AgentState) -> str:
         safe, effect = _classify_unhandled_tool_calls(state["messages"], tool_specs_by_name)
@@ -168,9 +250,13 @@ def build_graph(
             return APPROVAL
         return END
 
-    async def safe_tools_node(state: AgentState) -> dict[str, Any]:
+    async def safe_tools_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         safe, _effect = _classify_unhandled_tool_calls(state["messages"], tool_specs_by_name)
-        calls = (_run_tool_call(tools_by_name[call["name"]], call) for call in safe)
+        thread_id = _thread_id(config)
+        calls = (
+            _run_tool_call(tools_by_name[call["name"]], call, thread_id=thread_id, clock=clock)
+            for call in safe
+        )
         results = await asyncio.gather(*calls)
         return {"messages": list(results)}
 
@@ -178,7 +264,7 @@ def build_graph(
         _safe, effect = _classify_unhandled_tool_calls(state["messages"], tool_specs_by_name)
         return APPROVAL if effect else AGENT
 
-    async def approval_node(state: AgentState) -> dict[str, Any]:
+    async def approval_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         _safe, effect = _classify_unhandled_tool_calls(state["messages"], tool_specs_by_name)
         # v0.1 supports at most one effect tool_call per turn — PendingAction
         # (core/state.py) is a single object, not a list, by design.
@@ -203,7 +289,7 @@ def build_graph(
     def route_after_approval(state: AgentState) -> str:
         return EFFECT_TOOLS if state["pending"] is not None else AGENT
 
-    async def effect_tools_node(state: AgentState) -> dict[str, Any]:
+    async def effect_tools_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         pending = state["pending"]
         if pending is None:  # pragma: no cover - route_after_approval guarantees this
             raise AssertionError("effect_tools reached with no pending action")
@@ -213,14 +299,16 @@ def build_graph(
             "id": pending.tool_call_id,
             "type": "tool_call",
         }
-        message = await _run_tool_call(tools_by_name[pending.tool_name], call)
+        message = await _run_tool_call(
+            tools_by_name[pending.tool_name], call, thread_id=_thread_id(config), clock=clock
+        )
         return {"messages": [message], "pending": None}
 
     builder = StateGraph(AgentState)
-    builder.add_node(AGENT, agent_node)
-    builder.add_node(SAFE_TOOLS, safe_tools_node)
-    builder.add_node(APPROVAL, approval_node)
-    builder.add_node(EFFECT_TOOLS, effect_tools_node)
+    builder.add_node(AGENT, _instrumented(AGENT, agent_node, clock))
+    builder.add_node(SAFE_TOOLS, _instrumented(SAFE_TOOLS, safe_tools_node, clock))
+    builder.add_node(APPROVAL, _instrumented(APPROVAL, approval_node, clock))
+    builder.add_node(EFFECT_TOOLS, _instrumented(EFFECT_TOOLS, effect_tools_node, clock))
 
     builder.add_edge(START, AGENT)
     builder.add_conditional_edges(AGENT, route_after_agent, [SAFE_TOOLS, APPROVAL, END])

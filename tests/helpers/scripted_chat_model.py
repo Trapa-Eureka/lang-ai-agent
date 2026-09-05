@@ -25,6 +25,7 @@ from langchain_core.callbacks import (
 )
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
+from langchain_core.messages.ai import UsageMetadata
 from langchain_core.messages.tool import ToolCall
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import Runnable
@@ -57,13 +58,32 @@ def _chunks_for(message: AIMessage) -> list[AIMessageChunk]:
     how a real provider might dribble out partial JSON args — see T6).
     A plain-text turn streams word by word, so tests can assert multiple
     token events arrived in order.
+
+    The turn's `usage_metadata` rides on the *last* chunk only: LangChain
+    sums usage across chunks when it reassembles the message, so attaching
+    it to every chunk would multiply it (T8 — this is how the graph's
+    usage accumulation sees a scripted turn's fixed token counts under the
+    streaming path the API actually uses).
     """
     if message.tool_calls:
-        return [AIMessageChunk(content=message.content, tool_calls=message.tool_calls)]
-    if not isinstance(message.content, str) or not message.content:
-        return [AIMessageChunk(content=message.content)]
-    words = message.content.split(" ")
-    return [AIMessageChunk(content=word if i == 0 else f" {word}") for i, word in enumerate(words)]
+        chunks = [AIMessageChunk(content=message.content, tool_calls=message.tool_calls)]
+    elif not isinstance(message.content, str) or not message.content:
+        chunks = [AIMessageChunk(content=message.content)]
+    else:
+        words = message.content.split(" ")
+        chunks = [
+            AIMessageChunk(content=word if i == 0 else f" {word}") for i, word in enumerate(words)
+        ]
+    chunks[-1].usage_metadata = message.usage_metadata
+    return chunks
+
+
+def _usage(input_tokens: int | None, output_tokens: int | None) -> UsageMetadata | None:
+    """Fixed per-turn usage for a scripted turn (docs/TESTING.md §2 "고정 usage")."""
+    if input_tokens is None and output_tokens is None:
+        return None
+    inputs, outputs = input_tokens or 0, output_tokens or 0
+    return UsageMetadata(input_tokens=inputs, output_tokens=outputs, total_tokens=inputs + outputs)
 
 
 class ScriptedChatModel(BaseChatModel):
@@ -189,12 +209,28 @@ class ScriptBuilder:
         self._next_id = 1
 
     def tool_call(
-        self, name: str, args: dict[str, Any], *, tool_call_id: str | None = None
+        self,
+        name: str,
+        args: dict[str, Any],
+        *,
+        tool_call_id: str | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
     ) -> "ScriptBuilder":
         """Append a turn where the model calls exactly one tool."""
-        return self.tool_calls([ScriptedToolCall(name, args, tool_call_id)])
+        return self.tool_calls(
+            [ScriptedToolCall(name, args, tool_call_id)],
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
 
-    def tool_calls(self, calls: Sequence[ScriptedToolCall]) -> "ScriptBuilder":
+    def tool_calls(
+        self,
+        calls: Sequence[ScriptedToolCall],
+        *,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+    ) -> "ScriptBuilder":
         """Append a turn where the model calls multiple tools at once.
 
         Use this (rather than chaining `.tool_call()` twice) for the
@@ -210,12 +246,28 @@ class ScriptBuilder:
             }
             for call in calls
         ]
-        self._turns.append(AIMessage(content="", tool_calls=turn))
+        self._turns.append(
+            AIMessage(
+                content="", tool_calls=turn, usage_metadata=_usage(input_tokens, output_tokens)
+            )
+        )
         return self
 
-    def final(self, content: str) -> "ScriptBuilder":
-        """Append a turn where the model responds with plain text and no tool calls."""
-        self._turns.append(AIMessage(content=content))
+    def final(
+        self,
+        content: str,
+        *,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+    ) -> "ScriptBuilder":
+        """Append a turn where the model responds with plain text and no tool calls.
+
+        `input_tokens`/`output_tokens` pin the turn's usage_metadata so a
+        test can assert the graph's cumulative `Usage` equals a known sum.
+        """
+        self._turns.append(
+            AIMessage(content=content, usage_metadata=_usage(input_tokens, output_tokens))
+        )
         return self
 
     def _fresh_id(self) -> str:
