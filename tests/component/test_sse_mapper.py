@@ -32,7 +32,7 @@ _EVENT_ADAPTER: TypeAdapter[SSEEvent] = TypeAdapter(SSEEvent)
 
 def _assert_all_valid_events(events: list[SSEEvent]) -> None:
     """Every event the mapper yields must itself be a valid SSEEvent — round
-    tripping it through the schema is what "이벤트 스키마는 Pydantic으로 고정" means.
+    tripping it through the schema is what "the event schema is pinned with Pydantic" means.
     """
     for event in events:
         _EVENT_ADAPTER.validate_python(_EVENT_ADAPTER.dump_python(event, mode="json"))

@@ -1,46 +1,49 @@
-# WORKFLOW — 이 레포를 굴리는 AI-native 규칙
+# WORKFLOW — the AI-native rules this repo runs on
 
-기반: Clare Liguori (AWS), "From AI-Assisted to AI-Native: Building a Frontier Development Team"
-(https://youtu.be/Ry0WHNxDbYA · AWS 블로그: https://aws.amazon.com/blogs/machine-learning/how-frontier-teams-are-reinventing-ai-native-development/)
-운영 원칙은 sheet_mcp/retail-mcp의 WORKFLOW와 동일. 공통 요약 + **이 레포 특이사항**만 적는다.
+Basis: Clare Liguori (AWS), "From AI-Assisted to AI-Native: Building a Frontier Development Team"
+(https://youtu.be/Ry0WHNxDbYA · AWS blog: https://aws.amazon.com/blogs/machine-learning/how-frontier-teams-are-reinventing-ai-native-development/)
+The operating principles are the same as the WORKFLOW of sheet_mcp and retail-mcp. Only the shared summary plus **what is specific to this repo** is written here.
 
-## 0. 역할 정의 (프론티어 3행동)
+## 0. Roles (the three frontier behaviors)
 
-| 행동 | 이 레포에서 |
+| Behavior | In this repo |
 |---|---|
-| Hands-off Coding (1~2%) | Jin은 SPEC/DESIGN 수정·리뷰·스모크·공개 승인만. 구현은 에이전트 |
-| Infrequent Interaction | 태스크마다 기계 판정 완료 기준 → 세션 중 개입 없이 완주 |
-| Minimized Idle Time | T1 후 레인 A/B/C, T5 후 T6/T8/T9 병렬. sheet_mcp·retail-mcp와 레포 간 병렬도 가능 |
+| Hands-off Coding (1–2%) | The maintainer only edits and reviews SPEC/DESIGN, runs the smoke, and approves public releases. Implementation is done by the agent |
+| Infrequent Interaction | Every task has machine-checkable completion criteria → the agent runs to completion with no mid-session intervention |
+| Minimized Idle Time | Lanes A/B/C after T1, T6/T8/T9 after T5, in parallel. Cross-repo parallelism with sheet_mcp and retail-mcp is possible too |
 
-## 1. 습관 5개 → 규칙 (공통 요약)
+## 1. Five habits → rules (shared summary)
 
-1. **Agent Context** — 부족지식은 CLAUDE.md/docs에만. 격주 프루닝 + 로그.
-2. **Slow Down to Speed Up** — 이 레포의 번역: **Python이지만 타입은 포기하지 않는다.** pyright strict + Pydantic이 tsc의 역할을 대신해 에이전트에게 가장 싼 피드백 루프를 제공한다. `# type: ignore` 남발은 이 습관의 위반.
-3. **Feed, Don't Babysit** — 배정은 TASKS 템플릿 1회, 자기 검증 = `make check`.
+1. **Agent Context** — tribal knowledge lives only in CLAUDE.md and docs. Biweekly pruning with a log.
+2. **Slow Down to Speed Up** — this repo's translation: **it is Python, but types are not given up.** pyright strict + Pydantic take the role of tsc and give the agent its cheapest feedback loop. Sprinkling `# type: ignore` violates this habit.
+3. **Feed, Don't Babysit** — assignment is one TASKS template, self-verification is `make check`.
    ```bash
    git worktree add ../lang_ai_agent-t3 -b t3 && cd ../lang_ai_agent-t3 && claude
    ```
-4. **Explicit Intent** — 그래프 토폴로지·상태 스키마·SSE 계약 변경은 DESIGN diff가 코드보다 먼저.
-5. **Shift Left** — 이 레포의 번역: **모델을 대본으로 대체(ScriptedChatModel)**. LLM 앱의 "로컬 결정론 목 서비스"란 곧 가짜 모델이다. 실모델은 smoke/evals에만 존재한다.
+4. **Explicit Intent** — a change to the graph topology, the state schema, or the SSE contract lands as a DESIGN diff before code.
+5. **Shift Left** — this repo's translation: **replace the model with a script (ScriptedChatModel)**. In an LLM app the "local deterministic mock service" is a fake model. Real models exist only in smoke and evals.
 
-## 2. lang_ai_agent 특이사항
+## 2. Specific to lang_ai_agent
 
-- **플레이키 금지 원칙**: 테스트가 흔들리면 원인은 대본·코드다. 실모델 호출을 테스트에 넣어 "그럴듯하게" 통과시키는 수정은 리뷰에서 반려한다.
-- **승인 게이트는 협상 불가**: effect 도구가 approval을 우회하는 지름길 추가(편의상 플래그, 테스트 전용 백도어 포함)는 금지. 구조 불변식 테스트의 삭제·완화도 금지.
-- **상태 다이어트**: 상태는 체크포인트마다 통째로 직렬화된다. 리뷰 시 상태에 큰 페이로드가 들어오는 diff를 잡아낸다.
-- **공개 레포 의식**: 커밋 메시지·주석·에러 메시지는 공개돼도 부끄럽지 않게. 시크릿·클라이언트 흔적 유입 금지.
+- **No-flake principle**: if a test wobbles, the cause is the script or the code. A fix that puts a real-model call into a test to make it pass "plausibly" is rejected in review.
+- **The approval gate is non-negotiable**: adding a shortcut that lets an effect tool bypass approval (convenience flags, test-only backdoors included) is forbidden. Deleting or weakening the structural-invariant test is forbidden too.
+- **State diet**: state is serialized whole at every checkpoint. Review catches any diff that puts a large payload into state.
+- **Public-repo awareness**: commit messages, comments and error messages must be fit to be public. No secrets, no traces of clients.
+- **English everywhere** (since 2026-09-05): docs, code comments, commit messages, and user-facing strings are in English. The repo targets the global contracting market and the package is public.
 
-## 3. 일일 운영 루틴
+## 3. Daily routine
 
-1. 착수 가능 태스크 확인 → 레인별 worktree 배정 (세 레포 백로그를 하나의 큐로 취급)
-2. 실행 중 개입하지 않는다 — 그 시간에 v0.2 문서·데모 시나리오를 다듬는다
-3. 완료 보고 → `make check` 재실행 → diff 리뷰 → 머지 → 상태 갱신
-4. 격주: CLAUDE.md 프루닝, TASKS 정리
+1. Check which tasks are ready → assign a worktree per lane (the backlogs of the three repos are treated as one queue)
+2. Do not intervene while a task runs — spend that time polishing v0.2 docs and the demo scenario
+3. Completion report → re-run `make check` → review the diff → merge → update status
+4. Biweekly: prune CLAUDE.md, tidy TASKS
 
-## 4. 자율성의 한계선 (사람이 잡는 것)
+## 4. Limits of autonomy (what the maintainer holds)
 
-- 실모델 스모크 실행(API 비용)과 기본 모델 티어 결정
-- `SEND_MODE=live` 전환과 실 부작용 승인
-- GitHub 공개(퍼블리시) 승인과 영어 README 최종 톤
-- 시크릿·MCP 서버 경로 등 로컬 환경 구성
-- **정식(prod) PyPI 배포 실행 승인** — 동일 버전은 삭제 후 재업로드 불가라 `SEND_MODE=live`와 동급 비가역 행동. TestPyPI 배포까지는 에이전트가 자율 진행 가능.
+- Running the real-model smoke (API cost) and deciding the default model tier
+- Switching `SEND_MODE=live` and approving real side effects
+- Approving the GitHub publication and the final tone of the English README
+- Local environment setup such as secrets and MCP server paths
+- **Approving a production PyPI release** — the same version cannot be re-uploaded after deletion, so this is irreversible on the level of `SEND_MODE=live`. Up to the TestPyPI release the agent may proceed autonomously.
+
+These approvals concern the maintainer of this repo. None of them applies to people who install the package: installing and running `lang-ai-agent` never requires anyone's approval. The only "approval" an end user meets is the one their own agent asks for before running a side-effecting tool, and that user is the approver.

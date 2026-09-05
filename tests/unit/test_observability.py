@@ -38,9 +38,10 @@ def test_formatter_emits_one_json_object_with_structured_fields() -> None:
 
 
 def test_formatter_keeps_non_ascii_and_stringifies_odd_values() -> None:
-    line = JsonFormatter().format(_record("node", node="approval", note="승인 대기", when={1, 2}))
+    record = _record("node", node="approval", note="awaiting approval ✓", when={1, 2})
+    line = JsonFormatter().format(record)
 
-    assert "승인 대기" in line  # ensure_ascii=False
+    assert "awaiting approval ✓" in line  # ensure_ascii=False
     assert json.loads(line)["when"] == "{1, 2}"  # default=str, never a crash
 
 

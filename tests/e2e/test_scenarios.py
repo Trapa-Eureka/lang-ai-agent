@@ -88,7 +88,7 @@ async def _state(client: Any, thread_id: str) -> dict[str, Any]:
 
 
 async def test_scenario_1_query_streams_a_summary_with_no_interrupt() -> None:
-    summary = "본점 위험 품목 2건: SKU-100 에스프레소 원두(3일), SKU-142 귀리우유(5일)."
+    summary = "Main store: 2 at-risk items — SKU-100 espresso beans (3 days), SKU-142 oat milk."
     app, harness = _app_for(
         script()
         .tool_call(
@@ -104,7 +104,7 @@ async def test_scenario_1_query_streams_a_summary_with_no_interrupt() -> None:
             client,
             "POST",
             f"/threads/{thread_id}/messages",
-            {"content": "본점에서 다음 주에 떨어질 품목?"},
+            {"content": "Which items at the main store will stock out next week?"},
         )
         state = await _state(client, thread_id)
 
@@ -129,7 +129,7 @@ async def test_scenario_2_reorder_email_interrupts_then_sends_on_approval() -> N
         script()
         .tool_call("get_reorder_suggestions", {"store": "main"})
         .tool_call("send_reorder_email", _REORDER_EMAIL)
-        .final("공급사에 재주문 메일을 보냈습니다. 35개, 금요일 납품 요청.")
+        .final("Sent the reorder email to the supplier: 35 units, delivery requested for Friday.")
         .build()
     )
 
@@ -140,7 +140,7 @@ async def test_scenario_2_reorder_email_interrupts_then_sends_on_approval() -> N
             client,
             "POST",
             f"/threads/{thread_id}/messages",
-            {"content": "위험 품목 재주문 메일 보내줘"},
+            {"content": "Send the reorder email for the at-risk items"},
         )
         # the safe lookup ran, then the graph paused showing draft + recipient
         assert kinds(first)[:2] == ["tool_start", "tool_end"]
@@ -159,7 +159,7 @@ async def test_scenario_2_reorder_email_interrupts_then_sends_on_approval() -> N
         second = await read_sse(client, "POST", f"/threads/{thread_id}/approve", {"approved": True})
         assert kinds(second)[:2] == ["tool_start", "tool_end"]
         assert second[0]["data"]["tool_name"] == "send_reorder_email"
-        assert "재주문 메일을 보냈습니다" in token_text(second)
+        assert "Sent the reorder email" in token_text(second)
         assert kinds(second)[-2:] == ["usage", "done"]
 
         final = await _state(client, thread_id)
@@ -178,26 +178,26 @@ async def test_scenario_3a_rejection_ends_politely_without_sending() -> None:
     app, harness = _app_for(
         script()
         .tool_call("send_reorder_email", _REORDER_EMAIL)
-        .final("알겠습니다. 이미 발주하셨다니 메일은 보내지 않겠습니다.")
+        .final("Understood. Since you already placed the order, I will not send the email.")
         .build()
     )
 
     async with api_client(app) as client:
         thread_id = await _new_thread(client)
         await read_sse(
-            client, "POST", f"/threads/{thread_id}/messages", {"content": "재주문 메일 보내줘"}
+            client, "POST", f"/threads/{thread_id}/messages", {"content": "Send the reorder email"}
         )
 
         events = await read_sse(
             client,
             "POST",
             f"/threads/{thread_id}/approve",
-            {"approved": False, "comment": "이미 어제 발주했어요"},
+            {"approved": False, "comment": "I already placed the order yesterday"},
         )
         state = await _state(client, thread_id)
 
     assert "tool_start" not in kinds(events)  # the effect tool never ran
-    assert "보내지 않겠습니다" in token_text(events)
+    assert "will not send the email" in token_text(events)
     assert kinds(events)[-2:] == ["usage", "done"]
     assert state["awaiting_approval"] is False
     assert harness.effects.send_email_calls == []
@@ -213,14 +213,14 @@ async def test_scenario_3b_rejection_comment_leads_to_a_revised_draft_then_send(
         script()
         .tool_call("send_reorder_email", _REORDER_EMAIL)  # draft v1
         .tool_call("send_reorder_email", revised)  # after "too many", draft v2
-        .final("수량을 20개로 줄여 다시 보냈습니다.")
+        .final("Reduced the quantity to 20 and sent it again.")
         .build()
     )
 
     async with api_client(app) as client:
         thread_id = await _new_thread(client)
         v1 = await read_sse(
-            client, "POST", f"/threads/{thread_id}/messages", {"content": "재주문 메일 보내줘"}
+            client, "POST", f"/threads/{thread_id}/messages", {"content": "Send the reorder email"}
         )
         assert v1[-1]["data"]["draft"] == _REORDER_EMAIL["body"]
 
@@ -230,7 +230,7 @@ async def test_scenario_3b_rejection_comment_leads_to_a_revised_draft_then_send(
             client,
             "POST",
             f"/threads/{thread_id}/approve",
-            {"approved": False, "comment": "35개는 너무 많아요, 20개로"},
+            {"approved": False, "comment": "35 is too many, make it 20"},
         )
         assert kinds(v2) == ["interrupt"]
         assert v2[-1]["data"]["draft"] == revised["body"]
@@ -240,7 +240,7 @@ async def test_scenario_3b_rejection_comment_leads_to_a_revised_draft_then_send(
         sent = await read_sse(client, "POST", f"/threads/{thread_id}/approve", {"approved": True})
 
     assert kinds(sent)[:2] == ["tool_start", "tool_end"]
-    assert "20개로 줄여" in token_text(sent)
+    assert "Reduced the quantity to 20" in token_text(sent)
     assert harness.effects.send_email_calls == [revised]  # v2 only — v1 was never sent
     harness.model.assert_exhausted()
 
@@ -257,7 +257,7 @@ async def test_scenario_4_approval_survives_a_server_restart(tmp_path: Path) -> 
     model = ScriptedChatModel(
         script=script()
         .tool_call("send_reorder_email", _REORDER_EMAIL)
-        .final("재시작 후에도 이어서 보냈습니다.")
+        .final("Resumed after the restart and sent it.")
         .build()
     )
     effects = MockEffects(send_mode=SendMode.DRY_RUN)
@@ -266,7 +266,7 @@ async def test_scenario_4_approval_survives_a_server_restart(tmp_path: Path) -> 
     async with api_client(_sqlite_app_for(model, effects, db_path)) as client:
         thread_id = await _new_thread(client)
         first = await read_sse(
-            client, "POST", f"/threads/{thread_id}/messages", {"content": "재주문 메일 보내줘"}
+            client, "POST", f"/threads/{thread_id}/messages", {"content": "Send the reorder email"}
         )
         assert kinds(first)[-1] == "interrupt"
     assert effects.send_email_calls == []
@@ -281,7 +281,7 @@ async def test_scenario_4_approval_survives_a_server_restart(tmp_path: Path) -> 
         after = await _state(client, thread_id)
 
     assert kinds(events)[:2] == ["tool_start", "tool_end"]
-    assert "재시작 후에도" in token_text(events)
+    assert "Resumed after the restart" in token_text(events)
     assert kinds(events)[-2:] == ["usage", "done"]
     assert after["awaiting_approval"] is False
     assert effects.send_email_calls == [_REORDER_EMAIL]
@@ -289,7 +289,7 @@ async def test_scenario_4_approval_survives_a_server_restart(tmp_path: Path) -> 
 
 
 async def test_threads_are_isolated_from_each_other() -> None:
-    """TESTING §4 "스레드 격리": one thread paused for approval must not leak
+    """TESTING §4 "Thread isolation": one thread paused for approval must not leak
     into, or be disturbed by, another thread completing a plain query.
     """
     app, harness = _app_for(
@@ -297,8 +297,8 @@ async def test_threads_are_isolated_from_each_other() -> None:
         .tool_call(
             "send_reorder_email", _REORDER_EMAIL, input_tokens=10, output_tokens=1
         )  # thread A
-        .final("B: 재고 이상 없음.", input_tokens=20, output_tokens=2)  # thread B
-        .final("A: 보냈습니다.", input_tokens=30, output_tokens=3)  # thread A after approval
+        .final("B: inventory looks fine.", input_tokens=20, output_tokens=2)  # thread B
+        .final("A: sent.", input_tokens=30, output_tokens=3)  # thread A after approval
         .build()
     )
 
@@ -307,23 +307,23 @@ async def test_threads_are_isolated_from_each_other() -> None:
         thread_b = await _new_thread(client)
 
         a_first = await read_sse(
-            client, "POST", f"/threads/{thread_a}/messages", {"content": "재주문 메일"}
+            client, "POST", f"/threads/{thread_a}/messages", {"content": "reorder email"}
         )
         assert kinds(a_first)[-1] == "interrupt"
 
         b_events = await read_sse(
-            client, "POST", f"/threads/{thread_b}/messages", {"content": "재고 괜찮아?"}
+            client, "POST", f"/threads/{thread_b}/messages", {"content": "Is inventory OK?"}
         )
         # exact token count is a word-splitting detail of the test double —
         # assert the shape and the reassembled text, not how many chunks
         assert "interrupt" not in kinds(b_events) and "tool_start" not in kinds(b_events)
         assert kinds(b_events)[-2:] == ["usage", "done"]
-        assert token_text(b_events) == "B: 재고 이상 없음."
+        assert token_text(b_events) == "B: inventory looks fine."
 
         state_a, state_b = await _state(client, thread_a), await _state(client, thread_b)
         assert state_a["awaiting_approval"] is True and state_b["awaiting_approval"] is False
         assert state_a["usage"]["calls"] == 1 and state_b["usage"]["calls"] == 1
-        assert state_b["last_message"] == "B: 재고 이상 없음."
+        assert state_b["last_message"] == "B: inventory looks fine."
 
         a_done = await read_sse(client, "POST", f"/threads/{thread_a}/approve", {"approved": True})
         assert kinds(a_done)[-2:] == ["usage", "done"]

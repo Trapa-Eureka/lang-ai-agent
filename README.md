@@ -9,7 +9,7 @@
 
 It ships as an **Ops Copilot** demo (multi-store retail: "what's about to stock out?" → "send the reorder email"), but the runtime is domain-agnostic — the tools are the only retail-specific part. Swap them (or plug in your own MCP servers) and keep everything else.
 
-> **Status** — v0.1.0 is released on [PyPI](https://pypi.org/project/lang-ai-agent/) and gated by `make check` (ruff, pyright strict, pytest; 100% coverage on the graph core). Releases go through GitHub Actions Trusted Publishing with a human approval step. Internal design docs under `docs/` are in Korean; this README is the English entry point.
+> **Status** — v0.1.0 is released on [PyPI](https://pypi.org/project/lang-ai-agent/) and gated by `make check` (ruff, pyright strict, pytest; 100% coverage on the graph core). Releases go through GitHub Actions Trusted Publishing with a maintainer approval step. Design docs live under `docs/`.
 
 ## How it works
 
@@ -120,9 +120,9 @@ src/lang_ai_agent/
 tests/        helpers (ScriptedChatModel, MockEffects, FixedClock) · unit · component · e2e (API-level scenarios)
 ```
 
-CI runs `make check` on every push and pull request (`.github/workflows/ci.yml`). A `v*` tag runs `publish.yml`: build → TestPyPI → PyPI, the last step behind a required human approval (`docs/RELEASE.md`).
+CI runs `make check` on every push and pull request (`.github/workflows/ci.yml`). A `v*` tag runs `publish.yml`: build → TestPyPI → PyPI, the last step behind a required maintainer approval (`docs/RELEASE.md`). That approval is the maintainer's; installing and running the package never asks anyone for approval.
 
-## Docs (Korean)
+## Docs
 
 | Doc | Contents |
 |---|---|

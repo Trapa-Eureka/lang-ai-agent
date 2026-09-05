@@ -6,7 +6,7 @@ tested completely without a network call or an LLM in the loop.
 
 Never make the model plausible when a test goes wrong — a scripted test
 model must fail loudly the moment its script stops matching reality (see
-CLAUDE.md guardrail 5, "플레이키의 씨앗 차단"). This module gives that failure
+CLAUDE.md guardrail 5, "block the seed of flakiness"). This module gives that failure
 two shapes:
 
 - `ScriptExhaustedError`, raised mid-test, the moment the graph asks the
@@ -39,7 +39,7 @@ class ScriptExhaustedError(RuntimeError):
 class ScriptedToolCall(NamedTuple):
     """One tool call to script into a turn. Use with `ScriptBuilder.tool_calls()`
     for a turn that calls more than one tool at once (docs/TESTING.md §3,
-    "혼합 tool_calls").
+    "Mixed tool_calls").
     """
 
     name: str
@@ -79,7 +79,7 @@ def _chunks_for(message: AIMessage) -> list[AIMessageChunk]:
 
 
 def _usage(input_tokens: int | None, output_tokens: int | None) -> UsageMetadata | None:
-    """Fixed per-turn usage for a scripted turn (docs/TESTING.md §2 "고정 usage")."""
+    """Fixed per-turn usage for a scripted turn (docs/TESTING.md §2 "fixed usage")."""
     if input_tokens is None and output_tokens is None:
         return None
     inputs, outputs = input_tokens or 0, output_tokens or 0

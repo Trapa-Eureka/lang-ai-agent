@@ -11,7 +11,7 @@ from tests.helpers.scripted_chat_model import ScriptedToolCall, script
 
 
 async def test_query_only_has_no_interrupt(make_harness: MakeHarness) -> None:
-    """SPEC §4 scenario 1 / TESTING §3 "조회만": agent -> safe_tools -> agent -> END."""
+    """SPEC §4 scenario 1 / TESTING §3 "Query only": agent -> safe_tools -> agent -> END."""
     harness: GraphHarness = make_harness(
         script().tool_call("check_stockout", {"store": "main"}).final("2 items at risk.").build()
     )
@@ -25,7 +25,7 @@ async def test_query_only_has_no_interrupt(make_harness: MakeHarness) -> None:
 
 
 async def test_approved_send_sequential_turns(make_harness: MakeHarness) -> None:
-    """SPEC §4 scenario 2 / TESTING §3 "승인 발송": a safe lookup, then (having
+    """SPEC §4 scenario 2 / TESTING §3 "Approved send": a safe lookup, then (having
     seen its result) a *separate* agent turn decides to call the effect tool.
     agent -> safe_tools -> agent -> approval(interrupt) -> [resume approved]
     -> effect_tools -> agent -> END.
@@ -53,7 +53,7 @@ async def test_approved_send_sequential_turns(make_harness: MakeHarness) -> None
 
 
 async def test_rejected_send_never_executes_the_effect(make_harness: MakeHarness) -> None:
-    """TESTING §3 "거절": approval(interrupt) -> [resume rejected+comment] ->
+    """TESTING §3 "Rejection": approval(interrupt) -> [resume rejected+comment] ->
     agent -> END, with effect_tools never visited and the tool never run.
     """
     harness: GraphHarness = make_harness(
@@ -78,7 +78,7 @@ async def test_rejected_send_never_executes_the_effect(make_harness: MakeHarness
 
 
 async def test_mixed_safe_and_effect_in_one_turn(make_harness: MakeHarness) -> None:
-    """TESTING §3 "혼합 tool_calls(safe+effect 동시)": both calls come from the
+    """TESTING §3 "Mixed tool_calls (safe + effect in one response)": both calls come from the
     *same* AIMessage. safe_tools must run before approval, with no extra
     agent turn in between (agent -> safe_tools -> approval(interrupt) ->
     [resume approved] -> effect_tools -> agent).
@@ -104,7 +104,7 @@ async def test_mixed_safe_and_effect_in_one_turn(make_harness: MakeHarness) -> N
     assert "interrupt" in before
 
     # the safe call already ran and produced its ToolMessage before the
-    # interrupt — proving "safe 먼저 전부 실행 후 approval 진입" (DESIGN §3).
+    # interrupt — proving "all safe tools run first, then approval is entered" (DESIGN §3).
     state = await harness.state_values()
     tool_message_names = [m.name for m in state["messages"] if type(m).__name__ == "ToolMessage"]
     assert tool_message_names == ["check_stockout"]

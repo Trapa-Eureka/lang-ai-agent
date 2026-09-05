@@ -1,75 +1,76 @@
-# CLAUDE.md — lang_ai_agent 스티어링
+# CLAUDE.md — lang_ai_agent steering
 
-LangGraph 기반 프로덕션 에이전트 백엔드 (Ops Copilot 데모). 스펙은 `docs/SPEC.md`, 설계는 `docs/DESIGN.md`. **이 레포는 공개 포트폴리오가 될 것이므로 코드 품질 기준을 납품 수준으로 유지한다.**
+A LangGraph-based production agent backend (Ops Copilot demo). Spec in `docs/SPEC.md`, design in `docs/DESIGN.md`. **This repo is a public portfolio, so code quality is held to delivery standard.**
 
-## 스택
+## Stack
 
-- Python 3.12+, 패키지 관리 **uv** (pyproject.toml 단일 소스)
-- 타입: **pyright strict** + Pydantic v2 — "정적 타입이 에이전트의 가장 싼 피드백 루프"를 Python에서 재현하는 조합
-- 에이전트: LangGraph (커스텀 StateGraph — prebuilt 미사용이 의도), LangChain core
-- 모델: `init_chat_model` 경유 모델 불가지론, 기본 Claude(`langchain-anthropic`)
-- MCP 도구: `langchain-mcp-adapters` (`MultiServerMCPClient`)
-- API: FastAPI + SSE 스트리밍, 체크포인트: InMemorySaver(테스트) / AsyncSqliteSaver(개발·단일 서버, 그래프가 async라 동기 SqliteSaver 불가)
-- 검증: pytest + pytest-asyncio, ruff(lint+format), pyright
+- Python 3.12+, package management with **uv** (pyproject.toml is the single source)
+- Types: **pyright strict** + Pydantic v2 — the Python reproduction of "static types are the agent's cheapest feedback loop"
+- Agent: LangGraph (custom StateGraph — not using prebuilt is intentional), LangChain core
+- Model: model-agnostic via `init_chat_model`, Claude by default (`langchain-anthropic`)
+- MCP tools: `langchain-mcp-adapters` (`MultiServerMCPClient`)
+- API: FastAPI + SSE streaming; checkpoints: InMemorySaver (tests) / AsyncSqliteSaver (dev and single server; the graph is async, so the synchronous SqliteSaver cannot be used)
+- Verification: pytest + pytest-asyncio, ruff (lint + format), pyright
 
-## 명령어 (Makefile)
+## Commands (Makefile)
 
 ```bash
-make check        # ruff check + pyright + pytest — 태스크 완료의 필수 게이트
-make test         # pytest + core/ 커버리지 ≥90% 게이트(SPEC §5)
+make check        # ruff check + pyright + pytest — the required gate for task completion
+make test         # pytest + core/ coverage gate ≥ 90% (SPEC §5)
 make lint         # ruff check + format --check
 make typecheck    # pyright
-make dev          # uvicorn 개발 서버
-make smoke        # 실 모델·실 MCP 수동 스모크 (사람 전용, = lang-ai-agent smoke)
-uv run lang-ai-agent init    # 온보딩: 프로바이더 선택 + API 키 → .env (설치자용, DESIGN §8.1)
-uv run lang-ai-agent serve   # .env로 기동 — 키·토큰 누락은 기동 시점에 ConfigError
+make dev          # uvicorn dev server
+make smoke        # manual smoke with a real model and real MCP (humans only, = lang-ai-agent smoke)
+uv run lang-ai-agent init    # onboarding: choose a provider + API key → .env (for installers, DESIGN §8.1)
+uv run lang-ai-agent serve   # start from .env — a missing key or token is a ConfigError at startup
 ```
 
-## 소스 레이아웃
+## Source layout
 
 ```
 src/lang_ai_agent/
-  core/        # state.py(AgentState·Pydantic 모델), graph.py(StateGraph), tools_spec.py(도구 분류 규약)
-  adapters/    # llm.py(모델 팩토리·프로바이더 표 PROVIDERS), checkpoint.py, mcp_loader.py, effects.py(발송 등 부작용 구현)
-  api/         # app.py(FastAPI 조립·Settings·ConfigError), sse.py(이벤트 매핑·content_text), auth.py
-  cli.py       # 콘솔 스크립트 lang-ai-agent: init(온보딩) / serve / smoke
-  smoke.py     # 실모델 스모크 로직 — 콘솔 루프는 대본 모델로 테스트
-tests/         # helpers/(ScriptedChatModel, fake tools, fixed clock 포함), 단위·컴포넌트·e2e-mock
-scripts/       # smoke.py — 사람 전용 (lang_ai_agent.smoke의 얇은 래퍼)
-.github/workflows/ci.yml   # push·PR마다 make check
-mcp_servers.json.example   # MCP 도구 연결 설정 예시
+  core/        # state.py (AgentState, Pydantic models), graph.py (StateGraph), tools_spec.py (tool classification convention)
+  adapters/    # llm.py (model factory, provider table PROVIDERS), checkpoint.py, mcp_loader.py, effects.py (side effects such as sending)
+  api/         # app.py (FastAPI assembly, Settings, ConfigError), sse.py (event mapping, content_text), auth.py
+  cli.py       # console script lang-ai-agent: init (onboarding) / serve / smoke
+  smoke.py     # real-model smoke logic — the console loop is tested with a scripted model
+tests/         # helpers/ (ScriptedChatModel, fake tools, fixed clock), unit, component, e2e-mock
+scripts/       # smoke.py — humans only (thin wrapper around lang_ai_agent.smoke)
+.github/workflows/ci.yml   # make check on every push and PR
+mcp_servers.json.example   # example MCP tool connection configuration
 ```
 
-## 컨벤션
+## Conventions
 
-- pyright strict에서 `# type: ignore`는 사유 주석 없이는 금지. `Any` 반환 함수 금지, 경계(요청·모델 출력·MCP 응답)는 Pydantic 파싱.
-- 기본 async. 그래프 노드는 얇게 — 로직은 순수 함수로 빼서 단위 테스트 가능하게.
-- **상태(State)에 대용량 페이로드 저장 금지** — 상태는 매 체크포인트마다 직렬화되므로 메시지·최소 메타만 담고, 큰 결과물은 요약해서 넣는다.
-- 에러 메시지는 원인 + 수정 방법까지 (예: `mcp_servers.json이 없습니다. mcp_servers.json.example을 복사해 서버 경로를 채우세요.`). 설정 문제는 첫 요청이 아니라 **기동 시점**에 `ConfigError`로.
-- 모델 `content`는 `str` **또는** 콘텐츠 블록 리스트(실모델은 리스트) — 텍스트는 `api/sse.py`의 `content_text()`로 읽는다. `isinstance(content, str)`만 보면 실모델에서 조용히 빈 문자열이 된다.
-- 클라이언트(SSE `error`)·모델(에러 ToolMessage)에 보이는 예외 문자열은 `core/errors.describe_error()`(타입 + 첫 줄 200자)로만. 전체 traceback은 서버 로그(`exc_info`)에만.
-- 같은 thread_id의 그래프 실행은 `api/thread_locks.py`로 직렬화된다 — 스레드 상태를 바꾸는 새 엔드포인트는 반드시 그 락 안에서 돈다(DESIGN §5 메모).
-- 커밋 메시지: `T{n}: Summary`. **영어로 작성** (레포는 글로벌 계약 시장 대상 포트폴리오이므로 커밋 로그도 영어). 문서 본문은 한국어 유지.
+- Under pyright strict, `# type: ignore` is forbidden without a reason comment. No functions returning `Any`; boundaries (requests, model output, MCP responses) are parsed with Pydantic.
+- Async by default. Graph nodes stay thin — pull logic into pure functions so it is unit-testable.
+- **No large payloads in State** — state is serialized at every checkpoint, so it holds messages and minimal metadata only; large results are summarized before they enter it.
+- Error messages include the cause and the fix (e.g. `mcp_servers.json not found. Copy mcp_servers.json.example and fill in the server paths.`). Configuration problems surface **at startup** as `ConfigError`, not on the first request.
+- Model `content` is either `str` **or** a list of content blocks (real models send the list) — read text through `content_text()` in `api/sse.py`. Checking only `isinstance(content, str)` silently yields an empty string with a real model.
+- Exception strings visible to clients (SSE `error`) and to the model (error ToolMessage) come only from `core/errors.describe_error()` (type + first line, 200 chars). The full traceback goes to the server log only (`exc_info`).
+- Graph runs on the same thread_id are serialized by `api/thread_locks.py` — any new endpoint that changes thread state must run inside that lock (DESIGN §5 note).
+- Commit messages: `T{n}: Summary`, **in English**. **Everything in the repo is English** — docs, comments, docstrings, user-facing strings, test fixtures (the repo is a portfolio for the global contracting market and the package is public; switched from Korean docs on 2026-09-05).
 
-## 가드레일 (위반 금지)
+## Guardrails (never violate)
 
-1. **부작용 도구(requires_approval=True)는 승인 인터럽트를 거치지 않는 실행 경로가 코드에 존재하면 안 된다.** 그래프 구조 테스트로 강제된다 — 우회 금지.
-2. 테스트에서 **네트워크·실 LLM 호출 0건.** 모델은 ScriptedChatModel, MCP는 페이크 도구, 발송은 목. 실모델은 `make smoke`와 evals에만.
-3. 발송류 부작용은 이중 게이트: 그래프 승인 인터럽트 **그리고** `SEND_MODE=live`. 테스트는 항상 dry_run 경로.
-4. 시크릿(`ANTHROPIC_API_KEY`, `APP_BEARER_TOKEN` 등)은 `.env`만. 커밋 금지, `.env.example`만 커밋.
-5. ScriptedChatModel 대본이 소진되거나 기대와 어긋나면 **조용히 넘어가지 말고 명확히 실패**시킨다 (플레이키의 씨앗 차단).
-6. 스펙·설계와 코드가 충돌하면 `docs/`를 먼저 고친다. 특히 그래프 토폴로지 변경은 DESIGN §3 수정이 선행.
+1. **No execution path for a side-effecting tool (requires_approval=True) may exist in the code that skips the approval interrupt.** Enforced by a graph-structure test — no workarounds.
+2. **Zero network and real-LLM calls in tests.** Model = ScriptedChatModel, MCP = fake tools, sending = mock. Real models only in `make smoke` and evals.
+3. Side effects such as sending are double-gated: the graph's approval interrupt **and** `SEND_MODE=live`. Tests always take the dry_run path.
+4. Secrets (`ANTHROPIC_API_KEY`, `APP_BEARER_TOKEN`, etc.) live only in `.env`. Never commit them; only `.env.example` is committed.
+5. If a ScriptedChatModel script is exhausted or diverges from expectations, **fail loudly instead of passing silently** (block the seed of flakiness).
+6. When spec/design and code conflict, fix `docs/` first. In particular, a graph topology change is preceded by a DESIGN §3 edit.
 
-## 작업 방식
+## Way of working
 
-- 한 세션 = `docs/TASKS.md`의 한 태스크. 완료 기준 전부 충족 + `make check` 통과까지 자가 수정 루프. 스펙 모호로 막힐 때만 멈추고 질문.
-- 완료 시 변경 파일·검증 결과 요약 후 종료.
+- One session = one task from `docs/TASKS.md`. Self-correct until every completion criterion is met and `make check` passes. Stop and ask only when blocked by spec ambiguity.
+- On completion, summarize the changed files and verification results, then stop.
 
-## 프루닝 로그
+## Pruning log
 
-격주 검토, 낡은 규칙 삭제 (`docs/WORKFLOW.md`).
+Reviewed biweekly; stale rules deleted (`docs/WORKFLOW.md`).
 
-- 2026-09-04: 최초 작성.
-- 2026-09-04: 커밋 메시지 언어를 영어로 확정(T12 커밋 메시지 수정 계기).
-- 2026-09-05: 온보딩 CLI(`lang-ai-agent init/serve/smoke`)·프로바이더 표·content_text 규칙 추가(T11 실모델 스모크 계기).
-- 2026-09-05: 에러 정제(`describe_error`)·스레드 직렬화 규칙 추가(코드 감사 001, T16 계기).
+- 2026-09-04: first version.
+- 2026-09-04: commit message language fixed to English (prompted by correcting the T12 commit message).
+- 2026-09-05: onboarding CLI (`lang-ai-agent init/serve/smoke`), provider table and content_text rule added (prompted by the T11 real-model smoke).
+- 2026-09-05: error sanitization (`describe_error`) and thread serialization rules added (code audit 001, T16).
+- 2026-09-05: whole repo switched to English — docs, comments, strings (T17); the "docs stay Korean" rule removed.

@@ -129,7 +129,7 @@ def _classify_unhandled_tool_calls(
     "Not yet answered" = no ToolMessage with a matching tool_call_id appears
     after it — which is what lets this same function correctly return "only
     the effect calls" once `safe_tools` has already run (docs/DESIGN.md §3:
-    "safe 먼저 전부 실행 후 approval 진입").
+    "all safe tools run first, then approval is entered").
     """
     ai_index = _find_last_ai_message_index(messages)
     if ai_index is None:  # pragma: no cover - defensive, see _find_last_ai_message_index

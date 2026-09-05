@@ -1,74 +1,75 @@
 # SPEC — lang_ai_agent v0.1
 
-작성: 2026-09-04 · 상태: 확정 (변경 시 이 문서를 먼저 수정)
-개정: 2026-09-04 — PyPI 배포를 v0.1 목표로 추가, npm(JS/TS 클라이언트 SDK) 배포는 착수 보류(T12)
-개정: 2026-09-05 — 셀프서비스 온보딩(목표 8) 추가, GitHub Actions CI를 v0.2에서 v0.1로 당김(T11)
+Written: 2026-09-04 · Status: final (change this document first when anything changes)
+Revised: 2026-09-04 — added PyPI release as a v0.1 goal; npm (JS/TS client SDK) release deferred (T12)
+Revised: 2026-09-05 — added self-service onboarding (goal 8); pulled GitHub Actions CI from v0.2 into v0.1 (T11)
+Revised: 2026-09-05 — all documentation switched from Korean to English (T17)
 
-## 1. 배경
+## 1. Background
 
-LangChain/LangGraph 에이전트 백엔드는 현재 글로벌 원격 계약 시장에서 수요·단가가 가장 높은 항목이다. 반면 계약 입찰에서 갈리는 건 "에이전트를 돌려봤다"가 아니라 **프로덕션 패턴을 갖췄는가**다: 스트리밍, 영속 상태와 재시작 내성, 사람 승인(HITL), 결정론 테스트, 관측성. 이 레포는 그 패턴 전부를 갖춘 레퍼런스를 만들어,
+LangChain/LangGraph agent backends are currently the highest-demand, highest-rate item in the global remote contracting market. What decides a bid, however, is not "I have run an agent" but **whether the production patterns are in place**: streaming, durable state with restart resilience, human-in-the-loop approval, deterministic tests, observability. This repo builds a reference that has all of those patterns, so that it can
 
-- 공개 포트폴리오(계약 입찰·기술 검증용)로 쓰고,
-- MCP 자동화 코어의 **에이전트 런타임 계층**으로 재사용한다 — 도구가 곧 자체 MCP 서버들(retail-mcp 등)이기 때문.
+- serve as a public portfolio (for contract bids and technical vetting), and
+- be reused as the **agent runtime layer** of the MCP automation core — the tools are our own MCP servers (retail-mcp and friends).
 
-데모 도메인 **Ops Copilot**: 다지점 리테일 운영 질의·재주문 메일 발송. 도메인은 데모일 뿐, 구조는 도메인 불문 재사용이 목표다.
+Demo domain: **Ops Copilot** — multi-store retail operations queries and reorder-email sending. The domain is only a demo; the structure is meant to be reused regardless of domain.
 
-## 2. v0.1 목표
+## 2. v0.1 goals
 
-1. **커스텀 StateGraph 에이전트**: LLM 도구 호출 루프 + **부작용 도구는 `interrupt()` 승인 게이트** 필수 경유. 승인/거절/수정 후 `Command`로 재개.
-2. **영속·재시작 내성**: 체크포인터 기반. 서버 재시작 후에도 같은 thread_id로 인터럽트 지점부터 재개된다.
-3. **HTTP API (FastAPI)**: 스레드 생성 → 메시지 전송(SSE 스트림: 토큰·도구 이벤트·인터럽트) → 상태 조회 → 승인/거절 재개. Bearer 토큰 인증.
-4. **도구 계층**: 조회형(safe) / 부작용형(effect, requires_approval) 분류 규약. v0.1 도구는 retail-mcp 스키마를 미러한 페이크 3종(`check_stockout`, `get_reorder_suggestions`, `send_reorder_email`) + MCP 로더(`mcp_servers.json` → `MultiServerMCPClient`)로 실 MCP 서버 연결 경로.
-5. **결정론 테스트**: 실 LLM 없이 ScriptedChatModel로 그래프 궤적 전체를 검증 (`docs/TESTING.md`).
-6. **관측성 최소셋**: 토큰·비용 집계(스레드별), 구조화 로그, LangSmith 트레이싱 옵션(env로 on/off).
-7. **PyPI 배포**: `pyproject.toml` 배포 메타데이터 정비 → TestPyPI 검증 → 정식 PyPI에 설치 가능한 패키지로 배포 (DESIGN §10).
-8. **셀프서비스 온보딩**: 설치한 사람이 `lang-ai-agent init`으로 자기 프로바이더(Anthropic 기본 / OpenAI / xAI / Google) API 키를 `.env`에 넣고 `lang-ai-agent serve`로 기동한다. 키 누락은 첫 모델 호출이 아니라 기동 시점에 수정 방법과 함께 실패한다 (DESIGN §8.1).
+1. **Custom StateGraph agent**: LLM tool-calling loop where **side-effecting tools must pass through an `interrupt()` approval gate**. Approve / reject / revise, then resume with `Command`.
+2. **Durability and restart resilience**: checkpointer-based. After a server restart the same thread_id resumes from the interrupt point.
+3. **HTTP API (FastAPI)**: create thread → send message (SSE stream: tokens, tool events, interrupt) → read state → approve/reject to resume. Bearer token auth.
+4. **Tool layer**: a classification convention of read-only (safe) vs side-effecting (effect, requires_approval). v0.1 tools are three fakes mirroring the retail-mcp schema (`check_stockout`, `get_reorder_suggestions`, `send_reorder_email`) plus an MCP loader (`mcp_servers.json` → `MultiServerMCPClient`) as the path to real MCP servers.
+5. **Deterministic tests**: the whole graph trajectory is verified with a ScriptedChatModel, no real LLM (`docs/TESTING.md`).
+6. **Minimal observability**: per-thread token/cost accounting, structured logs, optional LangSmith tracing (env on/off).
+7. **PyPI release**: finalize `pyproject.toml` distribution metadata → verify on TestPyPI → publish an installable package to PyPI (DESIGN §10).
+8. **Self-service onboarding**: whoever installs the package runs `lang-ai-agent init` to put their own provider API key (Anthropic default / OpenAI / xAI / Google) into `.env`, then `lang-ai-agent serve` to start. A missing key fails at startup, with the fix in the message, rather than on the first model call (DESIGN §8.1).
 
-## 3. v0.1 비목표
+## 3. v0.1 non-goals
 
-- 멀티 에이전트(supervisor/서브그래프) — v0.2
-- PostgresSaver·수평 확장 배포 — v0.2 (v0.1은 SqliteSaver 단일 서버)
-- 평가 하니스(eval셋·LLM-as-judge·궤적 회귀) — v0.3
-- RAG/벡터 검색, 장기 메모리 — 별도 판단
-- 멀티테넌시·과금 — 계약 납품 시 클라이언트별 포크 전략으로 대응 (미결 §8)
-- 웹 프론트엔드 — API + `scripts/` 데모 클라이언트까지만
-- **npm(JS/TS 클라이언트 SDK) 배포** — 별도 신규 패키지가 필요한 작업이라 착수 보류. PyPI 배포(목표 7) 안정화 후 재논의 (`docs/TASKS.md` "보류" 섹션)
+- Multi-agent (supervisor / subgraphs) — v0.2
+- PostgresSaver and horizontally scaled deployment — v0.2 (v0.1 is SqliteSaver, single server)
+- Evaluation harness (eval sets, LLM-as-judge, trajectory regression) — v0.3
+- RAG / vector search, long-term memory — decided separately
+- Multi-tenancy and billing — handled per contract by a client-specific fork strategy (open, §8)
+- Web frontend — API plus the `scripts/` demo client only
+- **npm (JS/TS client SDK) release** — needs a separate new package, so it is deferred. Revisit after the PyPI release (goal 7) is stable (`docs/TASKS.md`, "Deferred" section)
 
-## 4. 대표 시나리오
+## 4. Representative scenarios
 
-1. **조회(승인 불필요)** — "본점에서 다음 주에 떨어질 품목?" → agent가 `check_stockout` 호출 → 표 요약 스트리밍. 인터럽트 없음.
-2. **부작용(승인 필수)** — "위험 품목 재주문 메일 보내줘" → 제안 조회 → 메일 초안 → **인터럽트**(초안·수신자 표시) → 클라이언트가 `/approve` → 발송 → 결과 보고.
-3. **거절·수정** — 인터럽트에서 `approved=false` + 코멘트 → 발송 없이 초안 수정 재제시 또는 정중한 종료.
-4. **재시작 내성** — 2번 인터럽트 상태에서 서버 재시작 → 같은 thread_id로 `/approve` → 정상 재개·발송.
+1. **Query (no approval)** — "Which items at the main store will stock out next week?" → the agent calls `check_stockout` → streams a table summary. No interrupt.
+2. **Side effect (approval required)** — "Send the reorder email for the at-risk items" → fetch suggestions → draft the email → **interrupt** (draft and recipient shown) → client calls `/approve` → send → report the result.
+3. **Reject and revise** — at the interrupt, `approved=false` plus a comment → no send; a revised draft is proposed again, or the agent ends politely.
+4. **Restart resilience** — with scenario 2 paused at the interrupt, restart the server → `/approve` with the same thread_id → resumes and sends normally.
 
-## 5. 성공 기준 (v0.1 완료 판정)
+## 5. Success criteria (v0.1 done)
 
-- 시나리오 1~4가 **e2e-mock**(ScriptedChatModel + 페이크 도구)으로 API 레벨에서 전부 통과.
-- 부작용 도구가 승인 게이트를 우회하는 경로가 없음을 그래프 구조 테스트로 증명.
-- `make check` 통과, `src/lang_ai_agent/core/` 커버리지 90% 이상.
-- 수동 스모크: 실 Claude 모델 1회 + (옵션) 실 retail-mcp stdio 연결로 시나리오 1 재현. — 2026-09-05 완료: `anthropic:claude-sonnet-4-5`로 시나리오 1 정상(도구 호출·token 스트리밍·usage, 1회 ≈ 2.0k 입력/0.3k 출력 토큰 ≈ $0.01). 이 과정에서 실모델에서만 드러나는 결함 2건(`.env` 미내보냄, 블록 리스트 content) 발견·수정.
-- 온보딩: 설치 후 `lang-ai-agent init` → `lang-ai-agent serve`만으로 자기 키로 응답을 받을 수 있다 (목표 8, T11).
-- 포트폴리오 준비물: 영어 README 초안 + 데모 스크립트 (T11).
-- TestPyPI 배포 성공 + 정식 PyPI 배포 1회 이상 완료 (T13~T14).
+- Scenarios 1–4 all pass at the API level as **e2e-mock** (ScriptedChatModel + fake tools).
+- A graph-structure test proves there is no path by which a side-effecting tool bypasses the approval gate.
+- `make check` passes; coverage of `src/lang_ai_agent/core/` is 90% or higher.
+- Manual smoke: one run with a real Claude model, optionally with a real retail-mcp stdio connection, reproducing scenario 1. — Done 2026-09-05: scenario 1 works on `anthropic:claude-sonnet-4-5` (tool call, token streaming, usage; one run ≈ 2.0k input / 0.3k output tokens ≈ $0.01). Two defects that only show up with a real model were found and fixed (`.env` not exported, block-list content).
+- Onboarding: after install, `lang-ai-agent init` → `lang-ai-agent serve` alone gets a response with your own key (goal 8, T11).
+- Portfolio material: English README draft plus a demo script (T11).
+- A successful TestPyPI release and at least one production PyPI release (T13–T14).
 
-## 6. 로드맵
+## 6. Roadmap
 
-| 버전 | 내용 | 전제 |
+| Version | Contents | Prerequisite |
 |---|---|---|
-| v0.1 | 단일 에이전트 그래프 + 승인 게이트 + FastAPI SSE + 결정론 테스트 + 온보딩 CLI + GitHub Actions CI(`make check`) + PyPI 배포 + 공개 준비 | — |
-| v0.2 | PostgresSaver, supervisor 멀티에이전트, 실 retail-mcp 상시 연결, 다중 프로세스용 스레드 lease·effect 멱등키, 메시지 윈도/요약·체크포인트 정리·스레드 TTL, CI 의존성 취약점 검사 (DESIGN §11) | v0.1 공개 |
-| v0.3 | 평가 하니스(골든 궤적 회귀 + eval셋), 비용 리포트, Docker 배포 템플릿 | — |
-| v0.4 | MCP 코어 편입 판단 — 코어의 버티컬 에이전트들을 이 런타임 위로 이관 | 코어 MVP 검증 |
+| v0.1 | Single-agent graph + approval gate + FastAPI SSE + deterministic tests + onboarding CLI + GitHub Actions CI (`make check`) + PyPI release + public launch prep | — |
+| v0.2 | PostgresSaver, supervisor multi-agent, always-on real retail-mcp connection, per-thread lease and effect idempotency keys for multi-process, message window/summary, checkpoint pruning, thread TTL, dependency vulnerability scan in CI (DESIGN §11) | v0.1 public |
+| v0.3 | Evaluation harness (golden-trajectory regression + eval sets), cost reports, Docker deployment template | — |
+| v0.4 | Decide on folding into the MCP core — move the core's vertical agents onto this runtime | core MVP validated |
 
-## 7. 포트폴리오 산출 기준 (공개 시점)
+## 7. Portfolio deliverables (at public launch)
 
-- README는 영어로 전환(내부 docs는 한국어 유지), 아키텍처 다이어그램 1장, 60초 데모(터미널 녹화) 1개.
-- "왜 이렇게 설계했나" 섹션: 승인 게이트·결정론 테스트·상태 비대화 방지 — 계약 인터뷰에서 그대로 말할 수 있는 근거.
-- README에 PyPI 배지 + `pip install`/`uv add` 설치 안내 포함 (T15).
-- 라이선스 **MIT** (2026-09-05 확정: 의존성 스택 전부 MIT라 일관되고, 계약 클라이언트의 검토 부담이 가장 작다). `LICENSE` 파일은 T13에서 추가.
+- README in English (all internal docs are in English as well, since 2026-09-05), one architecture diagram, one 60-second demo (terminal recording).
+- A "why it is built this way" section: approval gate, deterministic tests, keeping state small — reasons you can state verbatim in a contract interview.
+- README carries a PyPI badge plus `pip install` / `uv add` instructions (T15).
+- License **MIT** (settled 2026-09-05: the whole dependency stack is MIT, so it is consistent and the lightest to review for a contracting client). The `LICENSE` file is added in T13.
 
-## 8. 미결 사항
+## 8. Open items
 
-- [x] 기본 모델 티어(비용 vs 데모 품질) — 2026-09-05 사용자 결정: `anthropic:claude-sonnet-4-5` **유지**(스모크 1회 ≈ $0.01, 응답 8초, 데모 품질 충분). 다른 티어 비교는 필요해지면 v0.3 evals에서.
-- [ ] retail-mcp 상시 연결 시 프로세스 관리(stdio 수명) 방식
-- [ ] 계약 납품 표준: 클라별 포크 vs 코어 라이브러리화 — v0.2 전 결정
+- [x] Default model tier (cost vs demo quality) — user decision 2026-09-05: **keep** `anthropic:claude-sonnet-4-5` (one smoke run ≈ $0.01, 8 s response, demo quality sufficient). Compare other tiers in v0.3 evals if it becomes necessary.
+- [ ] Process management (stdio lifetime) for an always-on retail-mcp connection
+- [ ] Contract delivery standard: per-client fork vs core library — decide before v0.2

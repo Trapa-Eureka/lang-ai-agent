@@ -1,5 +1,5 @@
 """The `lang-ai-agent` console script (T11 — docs/DESIGN.md §8.1 onboarding,
-§10 console script; docs/TESTING.md §4 "온보딩·설정")."""
+§10 console script; docs/TESTING.md §4 "Onboarding and configuration")."""
 
 import stat
 from collections.abc import Callable

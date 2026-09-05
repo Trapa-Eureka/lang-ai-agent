@@ -33,8 +33,9 @@ from lang_ai_agent.api.sse import (
 from lang_ai_agent.core.state import AgentState, Usage
 
 SCENARIOS: tuple[str, ...] = (
-    "본점(store id: main)에서 다음 주에 떨어질 품목이 뭐야? 표로 요약해줘.",
-    "위험 품목 재주문 메일을 ops@example.com으로 보내줘.",
+    "Which items at the main store (store id: main) will stock out next week? "
+    "Summarize as a table.",
+    "Send the reorder email for the at-risk items to ops@example.com.",
 )
 """SPEC §4 scenarios 1 and 2 — the second must reach the approval gate."""
 

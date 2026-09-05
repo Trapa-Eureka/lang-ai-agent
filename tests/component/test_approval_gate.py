@@ -1,4 +1,4 @@
-"""The approval-gate edge cases (docs/TESTING.md §4, "그래프·승인 게이트").
+"""The approval-gate edge cases (docs/TESTING.md §4, "Graph and approval gate").
 
 Five items, one test (or small group) each:
 1. structural invariant — effect_tools is reachable only from approval

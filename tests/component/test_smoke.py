@@ -1,4 +1,4 @@
-"""The real-model smoke's console loop (docs/TESTING.md §4 "온보딩·설정", §5),
+"""The real-model smoke's console loop (docs/TESTING.md §4 "Onboarding and configuration", §5),
 driven here by a scripted model and MockEffects — the exact flow a human runs
 with `make smoke`, verified with zero network calls (guardrail 2)."""
 

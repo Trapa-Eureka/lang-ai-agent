@@ -14,7 +14,7 @@ from lang_ai_agent.adapters.builtin_tools import (
 from lang_ai_agent.adapters.effects import SendMode
 from tests.helpers.mock_effects import MockEffects
 
-# --- args_schema validation (Pydantic, "zod급 검증") -------------------------
+# --- args_schema validation (Pydantic, "zod-grade validation") -------------------------
 
 
 def test_check_stockout_args_schema_rejects_wrong_types() -> None:
