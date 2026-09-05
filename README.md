@@ -1,10 +1,15 @@
 # lang_ai_agent
 
+[![PyPI](https://img.shields.io/pypi/v/lang-ai-agent.svg)](https://pypi.org/project/lang-ai-agent/)
+[![Python](https://img.shields.io/pypi/pyversions/lang-ai-agent.svg)](https://pypi.org/project/lang-ai-agent/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/Trapa-Eureka/lang-ai-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Trapa-Eureka/lang-ai-agent/actions/workflows/ci.yml)
+
 **A LangGraph agent backend built around production patterns**: a streaming HTTP API, durable state that survives restarts, a human-approval gate for side-effecting tools, deterministic tests that never call a real LLM, and built-in observability.
 
 It ships as an **Ops Copilot** demo (multi-store retail: "what's about to stock out?" → "send the reorder email"), but the runtime is domain-agnostic — the tools are the only retail-specific part. Swap them (or plug in your own MCP servers) and keep everything else.
 
-> **Status** — the v0.1 backend is complete and gated by `make check` (ruff, pyright strict, pytest; 100% coverage on the graph core). PyPI packaging and the first release are next. Internal design docs under `docs/` are in Korean; this README is the English entry point.
+> **Status** — v0.1.0 is released on [PyPI](https://pypi.org/project/lang-ai-agent/) and gated by `make check` (ruff, pyright strict, pytest; 100% coverage on the graph core). Releases go through GitHub Actions Trusted Publishing with a human approval step. Internal design docs under `docs/` are in Korean; this README is the English entry point.
 
 ## How it works
 
@@ -23,14 +28,22 @@ flowchart LR
 
 The only edge into `effect_tools` passes through `approval`. That is not a convention — a test walks the compiled graph and fails if any other path appears.
 
-## Quickstart
+## Install
 
-Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+Requires Python 3.12+.
 
 ```bash
-uv sync                      # (pip install lang-ai-agent — after the PyPI release)
-uv run lang-ai-agent init    # pick a provider, paste your API key → writes .env (mode 0600)
-uv run lang-ai-agent serve   # http://127.0.0.1:8000 — fails fast if the key is missing
+pip install lang-ai-agent          # or: uv add lang-ai-agent
+uv tool install lang-ai-agent      # or, as a standalone CLI on your PATH
+```
+
+To work from a checkout instead, install [uv](https://docs.astral.sh/uv/) and run `uv sync`; every command below then takes a `uv run` prefix.
+
+## Quickstart
+
+```bash
+lang-ai-agent init    # pick a provider, paste your API key → writes .env (mode 0600)
+lang-ai-agent serve   # http://127.0.0.1:8000 — fails fast if the key is missing
 ```
 
 `init` supports **Anthropic** (default), **OpenAI**, **xAI** and **Google**; `MODEL` uses LangChain's `provider:model` form, so any other provider `init_chat_model` supports works as well. Your key is written only to the git-ignored `.env`.
@@ -71,10 +84,12 @@ The full script with timings and a restart-resilience variant is in `docs/DEMO.m
 ## Real-model smoke
 
 ```bash
-uv run lang-ai-agent init         # once — your key goes to .env only
-make smoke                        # scenario 1 (query) + scenario 2 (draft → y/n approval in the console)
-uv run lang-ai-agent smoke --mcp  # same, with the real MCP servers from mcp_servers.json
+lang-ai-agent init         # once — your key goes to .env only
+lang-ai-agent smoke        # scenario 1 (query) + scenario 2 (draft → y/n approval in the console)
+lang-ai-agent smoke --mcp  # same, with the real MCP servers from mcp_servers.json
 ```
+
+From a checkout, `make smoke` runs the same thing.
 
 The smoke always runs dry-run, whatever `.env` says, and costs three to four model calls (cents on a Sonnet-class model). Everything else runs without a key: `make check` makes zero network calls.
 
@@ -91,6 +106,7 @@ The smoke always runs dry-run, whatever `.env` says, and costs three to four mod
 ## Development
 
 ```bash
+uv sync           # dev dependencies included
 make check        # ruff check + pyright strict + pytest (core coverage gate ≥ 90%)
 make dev          # uvicorn with --reload
 ```
@@ -104,7 +120,7 @@ src/lang_ai_agent/
 tests/        helpers (ScriptedChatModel, MockEffects, FixedClock) · unit · component · e2e (API-level scenarios)
 ```
 
-CI runs `make check` on every push and pull request (`.github/workflows/ci.yml`).
+CI runs `make check` on every push and pull request (`.github/workflows/ci.yml`). A `v*` tag runs `publish.yml`: build → TestPyPI → PyPI, the last step behind a required human approval (`docs/RELEASE.md`).
 
 ## Docs (Korean)
 
@@ -129,4 +145,4 @@ This repo is developed doc-first: spec and design are updated before code, imple
 
 ## License
 
-MIT. The `LICENSE` file is added with the packaging work before the first release.
+[MIT](LICENSE) © 2026 Trapa-Eureka.

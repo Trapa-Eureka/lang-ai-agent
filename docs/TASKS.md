@@ -88,9 +88,22 @@
 - 완료 기준: [x] 워크플로 yml 문법 검증(YAML 파싱 + job 구조 검사; actionlint 미설치) [x] 버전 태그 규칙 문서화(RELEASE.md §3) [x] 사람 승인 하 정식 배포 1회 성공(`v0.1.0` → Publish run 33957885151, testpypi·pypi job 모두 success, 사용자가 환경 `pypi` 승인; pypi.org에 `lang-ai-agent 0.1.0` wheel+sdist, 격리 환경 설치·`--help`·MIT 확인 — RELEASE.md §5) [x] check 통과
 - 구현 메모: `pypi` job은 `needs: [build, testpypi]` + `if: needs.build.outputs.prerelease == 'false'`. build job의 태그 검사 단계가 `packaging.version`으로 `is_prerelease`를 계산해 job 출력으로 넘긴다 — 태그 문자열의 `rc` 유무로 판정하면 `a1`/`b1`/`.dev1`이 정식으로 새므로 PEP 440 파싱으로 결정(RELEASE.md §2). 환경 `pypi`는 Required reviewer(Trapa-Eureka) + 태그 규칙 `v*`가 GitHub에 설정된 것을 API로 확인. 버전은 `uv version 0.1.0`(pyproject + uv.lock). `src/` 코드 변경 없음.
 
-### T15 — 최종 통합 공개 · 상태: TODO · 의존: T11, T14
+### T15 — 최종 통합 공개 · 상태: DONE(2026-09-05, 터미널 녹화 1건은 사람 작업으로 남김) · 의존: T11, T14
 - 목표: 루트 README에 PyPI 배지·설치 커맨드 추가, GitHub 공개 체크리스트(SPEC §7) 전항목 점검. LICENSE는 MIT로 확정되어 T13에서 추가되므로 여기서는 존재·저작권자 표기만 확인.
-- 완료 기준: [ ] README에 PyPI 배지 + `pip install`/`uv add` 안내 [ ] LICENSE(MIT) 존재·저작권자 확인 [ ] SPEC §7 기준 전항목 충족 확인
+- 완료 기준: [x] README에 PyPI 배지 + `pip install`/`uv add` 안내(배지 4종: PyPI 버전·Python 버전·MIT·CI, 전부 200 응답·버전 배지 `v0.1.0` 표시 확인; Install 절에 `pip install`/`uv add`/`uv tool install` + 체크아웃 경로는 `uv sync`) [x] LICENSE(MIT) 존재·저작권자 확인(`Copyright (c) 2026 Trapa-Eureka`, sdist·wheel·PyPI 메타데이터 `License-Expression: MIT` 일치) [x] SPEC §7 기준 전항목 점검 — 아래 표
+- SPEC §7 점검 결과:
+
+  | 항목 | 결과 |
+  |---|---|
+  | README 영어 전환(내부 docs 한국어) | 충족 — 영어 README, `docs/`·CLAUDE.md 한국어 |
+  | 아키텍처 다이어그램 1장 | 충족 — README "How it works"의 mermaid 그래프(GitHub 렌더; PyPI 페이지는 코드 블록으로 보임) |
+  | 60초 데모(터미널 녹화) 1개 | **미충족(사람 작업)** — 대본은 `docs/DEMO.md`에 있으나 녹화는 실모델 키가 필요해 에이전트가 만들 수 없음. 녹화 후 README "60-second demo" 절에 링크·GIF 추가 |
+  | "왜 이렇게 설계했나" 섹션(승인 게이트·결정론 테스트·상태 비대화 방지) | 충족 — README "Why it is built this way" 7항목 |
+  | PyPI 배지 + `pip install`/`uv add` | 충족 — 이 태스크 |
+  | 라이선스 MIT + `LICENSE` | 충족 — T13 |
+
+- 함께 정리: README Status 문구를 "v0.1.0 released on PyPI"로, License 절을 `[MIT](LICENSE) © 2026 Trapa-Eureka`로, Quickstart·Smoke 명령을 설치 후 기준(`uv run` 접두 없음)으로 바꾸고 체크아웃 경로는 Development 절로 옮겼다. 이 README는 다음 버전(0.1.1 이상) 배포 시 PyPI 프로젝트 페이지에 반영된다(0.1.0의 배포물 README는 재업로드 불가 — RELEASE.md §3). `src/` 코드 변경 없음.
+- 권고(사람, 선택): GitHub 레포 About의 description·website가 비어 있다(`gh repo view`로 확인). pyproject의 description과 PyPI 링크를 넣으면 검색·공개 페이지가 채워진다.
 
 ### T16 — 코드 감사 001 대응 · 상태: DONE(2026-09-05) · 의존: T11 (T13 전 수행)
 - 목표: 사용자 코드 검수 보고서 `docs/001_ADVERSARIAL_CODE_AUDIT.md`(9건 + 추가 2건)를 코드로 재검증하고 타당한 항목을 수정, 남는 항목은 v0.2로 문서화(DESIGN §11).
