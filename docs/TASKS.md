@@ -54,9 +54,10 @@
 - 완료 기준: [x] usage 누적 일치 테스트(TESTING §4) [x] 로그에 thread_id·node·tool 포함 스냅샷 [x] check 통과
 - 설계 메모: 토큰 합산은 콜백 대신 agent 노드가 응답의 `usage_metadata`를 순수 함수 `usage_after_call`로 누적(DESIGN §7 메모). 로그 시계는 `build_graph(clock=)`로 주입 — 테스트는 `tests/helpers/fixed_clock.py`로 정확한 duration_ms 스냅샷. ScriptedChatModel(T2)은 턴별 고정 usage(`input_tokens=`/`output_tokens=`)를 받고 스트리밍 시 **마지막 청크에만** usage_metadata를 실음(LangChain이 청크 usage를 합산하므로 전 청크에 붙이면 배수가 됨 — 실측). LangSmith는 `LANGSMITH_TRACING`을 직접 읽지만 pydantic-settings는 `.env`를 `os.environ`에 안 내보내므로 기동 시 다시 써주는 게 "배선".
 
-### T9 — MCP 로더 · 상태: TODO · 의존: T5
+### T9 — MCP 로더 · 상태: DONE(2026-09-05) · 의존: T5
 - 목표: `mcp_servers.json` 파서 + `MultiServerMCPClient` 로더 + approval 매핑(미지정 도구 → effect 기본값), `.example` 파일.
-- 완료 기준: [ ] 파싱·매핑 단위 테스트(실 프로세스 없음) [ ] 설정 파일 부재 시 수정 방법 담긴 에러 [ ] check 통과
+- 완료 기준: [x] 파싱·매핑 단위 테스트(실 프로세스 없음) [x] 설정 파일 부재 시 수정 방법 담긴 에러 [x] check 통과
+- 설계 메모: 파싱(Pydantic, `extra="forbid"` — `aproval` 같은 오타가 조용히 "전부 effect"로 둔갑하지 않게) / 매핑(순수) / 연결(`load_mcp_tool_specs`, 클라이언트 팩토리 주입 가능 → 테스트는 페이크)의 3층. 서버별 `get_tools(server_name=)`로 정책을 정확히 적용. `core/tools_spec.merge_tool_specs`가 내장·MCP·서버 간 **도구명 중복을 기동 시점에 거부**(그래프가 이름으로 도구를 찾아서 나중 것이 앞 것의 승인 요구를 조용히 덮어쓰기 때문). v0.1은 stdio 전용. 앱 배선: `MCP_SERVERS_PATH`(선택, DESIGN §8에 추가) 설정 시 기동 때 로드·병합 — T11 smoke `--mcp`의 진입점. 이 버전의 `MultiServerMCPClient`는 컨텍스트 매니저가 제거되어(호출마다 세션) 로더가 붙잡을 수명이 없음.
 
 ### T10 — e2e-mock + 커버리지 · 상태: TODO · 의존: T7, T8, T9
 - 목표: SPEC §4 시나리오 1~4를 API 레벨 e2e-mock으로(재시작 내성 포함), 커버리지 리포트.

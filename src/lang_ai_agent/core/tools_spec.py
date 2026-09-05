@@ -18,6 +18,9 @@ mapping; a tool missing from that mapping defaults to effect — approval
 required is the safe default when we don't know better.
 """
 
+from collections import Counter
+from collections.abc import Sequence
+
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict
 
@@ -29,3 +32,22 @@ class ToolSpec(BaseModel):
 
     tool: BaseTool
     requires_approval: bool
+
+
+def merge_tool_specs(*groups: Sequence[ToolSpec]) -> list[ToolSpec]:
+    """Concatenate tool sets (built-in + each MCP server), refusing duplicate
+    tool names.
+
+    The graph looks tools up by name (core/graph.py), so a duplicate would
+    let a later spec silently shadow an earlier one — and with it, that
+    tool's approval requirement. Failing loudly here is the safe choice.
+    """
+    merged = [spec for group in groups for spec in group]
+    duplicates = sorted(name for name, n in Counter(s.tool.name for s in merged).items() if n > 1)
+    if duplicates:
+        raise ValueError(
+            f"Duplicate tool name(s) across tool sources: {duplicates}. Each tool the "
+            "graph can call needs a unique name — rename the tool on one side, or drop "
+            "the server that re-exposes it (mcp_servers.json)."
+        )
+    return merged

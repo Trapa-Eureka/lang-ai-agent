@@ -95,6 +95,8 @@ class ToolSpec(BaseModel):
 
 로더는 이 설정을 파싱해 `MultiServerMCPClient`로 도구를 로드하고 ToolSpec에 매핑한다. **단위 테스트는 파싱·매핑까지만**(실 프로세스 없음), 실 연결은 smoke에서.
 
+- 구현 메모(T9): `approval`은 `{default: "safe"|"effect" (기본 effect), safe: [...], effect: [...]}` — 두 목록에 같은 도구가 있으면 설정 오류. 서버 항목은 `extra="forbid"`로 파싱해 키 오타가 조용히 "전부 effect"로 둔갑하지 않게 한다. 로더는 서버별 `get_tools(server_name=)`로 도구를 받아 그 서버의 정책을 적용하고, `merge_tool_specs`(core/tools_spec.py)가 내장 도구·MCP 서버 간 **도구명 중복을 기동 시점에 거부**한다(그래프가 이름으로 도구를 찾으므로 중복은 승인 요구를 조용히 덮어쓴다). v0.1은 `stdio` 전용(다른 transport는 v0.2). 앱은 `MCP_SERVERS_PATH`(§8, 선택)가 설정된 경우에만 기동 시 로드해 내장 도구와 병합한다. 실 클라이언트는 호출마다 세션을 열므로(이 버전은 컨텍스트 매니저 미지원) 로더가 붙잡을 수명은 없다.
+
 ## 7. 관측성 (T8)
 
 - usage 집계: 모델 콜백에서 토큰 합산 → 상태 usage 갱신 → `usage` SSE 이벤트·state 조회에 노출.
@@ -111,6 +113,7 @@ APP_BEARER_TOKEN=
 CHECKPOINT_DB_PATH=./data/checkpoints.db
 SEND_MODE=dry_run                   # dry_run | live — effect 어댑터의 2차 게이트
 LANGSMITH_TRACING=false
+MCP_SERVERS_PATH=                   # 선택: mcp_servers.json 경로. 비우면 내장 도구만 (T9)
 ```
 
 ## 9. 디렉터리 구조 (목표)

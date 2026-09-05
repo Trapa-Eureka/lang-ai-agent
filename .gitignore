@@ -4,6 +4,9 @@
 # runtime data (SqliteSaver checkpoints, etc.)
 data/
 
+# local MCP server config (machine-specific paths) — commit only the .example
+mcp_servers.json
+
 # Python
 __pycache__/
 *.py[cod]
