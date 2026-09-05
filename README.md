@@ -115,6 +115,7 @@ CI runs `make check` on every push and pull request (`.github/workflows/ci.yml`)
 | `docs/TASKS.md` | Task backlog with machine-checkable completion criteria |
 | `docs/WORKFLOW.md` | AI-native development rules for this repo |
 | `docs/DEMO.md` | The 60-second demo script |
+| `docs/RELEASE.md` | PyPI release runbook: Trusted Publishing setup, tag rules, procedure |
 
 This repo is developed doc-first: spec and design are updated before code, implementation is done task-by-task by Claude Code, and `make check` is the shared gate.
 
@@ -126,4 +127,4 @@ This repo is developed doc-first: spec and design are updated before code, imple
 
 ## License
 
-To be finalized with the first release.
+MIT. The `LICENSE` file is added with the packaging work before the first release.
