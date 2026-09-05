@@ -122,7 +122,13 @@ lang-ai-agent --help
 4. 정식: version `0.1.0` → 머지 → `v0.1.0` 태그 → testpypi 성공 후 Actions의 `pypi` job에서 "Review deployments" → Approve. 이 클릭이 정식 배포다.
 5. 확인: `pip install lang-ai-agent` → `lang-ai-agent init` → `lang-ai-agent serve`.
 
-## 5. 문제 해결
+## 5. 실행 기록
+
+| 날짜 | 태그 | 대상 | 결과 |
+|---|---|---|---|
+| 2026-09-05 | `v0.1.0rc1` (main `e21d000`) | TestPyPI | Publish run 33956057465 성공(build → testpypi). 격리 venv에 `--index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/`로 설치, `lang-ai-agent --help`·버전·MIT 확인. pending publisher가 첫 업로드로 프로젝트 `lang-ai-agent`를 생성함 (T13) |
+
+## 6. 문제 해결
 
 - `invalid-publisher` 류 에러: §1.2/1.3의 다섯 값 중 하나가 워크플로와 다르다(대소문자·파일명·환경명).
 - `File already exists`: 그 버전은 이미 올라갔다. 버전을 올려 다시 태그한다.
