@@ -26,6 +26,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from langchain_core.messages import HumanMessage
 from langgraph.graph.state import CompiledStateGraph
@@ -42,7 +43,7 @@ from lang_ai_agent.adapters.llm import build_chat_model
 from lang_ai_agent.adapters.mcp_loader import load_mcp_servers_config, load_mcp_tool_specs
 from lang_ai_agent.adapters.observability import apply_langsmith_tracing, configure_logging
 from lang_ai_agent.api.auth import require_bearer_token
-from lang_ai_agent.api.sse import SSEEvent, stream_sse_events
+from lang_ai_agent.api.sse import SSEEvent, content_text, stream_sse_events
 from lang_ai_agent.core.graph import build_graph
 from lang_ai_agent.core.state import AgentState, PendingAction, Usage
 from lang_ai_agent.core.tools_spec import merge_tool_specs
@@ -157,13 +158,13 @@ def create_app(graph_factory: GraphFactory, bearer_token: str) -> FastAPI:
     async def get_state(thread_id: str, request: Request) -> ThreadState:
         state = await existing_state(graph_of(request), thread_id)
         messages = state.values.get("messages", [])
-        last = messages[-1].content if messages else None
+        last_text = content_text(messages[-1].content) if messages else ""
         interrupts = state.interrupts
         pending = interrupts[0].value["action"] if interrupts else state.values.get("pending")
         return ThreadState(
             thread_id=thread_id,
             message_count=len(messages),
-            last_message=last if isinstance(last, str) else None,
+            last_message=last_text or None,
             pending=pending,
             usage=state.values.get("usage", Usage()),
             awaiting_approval=bool(interrupts),
@@ -209,6 +210,13 @@ def create_default_app() -> FastAPI:
     """The `make dev` entry point: `Settings` from `.env`, real model,
     AsyncSqliteSaver. Reads the environment only when called, never on import.
     """
+    # Export .env into the process environment *before* anything reads it.
+    # pydantic-settings only loads .env into our Settings object; provider
+    # clients (langchain-anthropic, -openai, ...) read their API key from
+    # os.environ, so without this a .env-only ANTHROPIC_API_KEY silently
+    # never reached the model — caught by the first real-model smoke. Real
+    # environment variables still win: load_dotenv never overrides them.
+    load_dotenv(".env")
     settings = Settings()  # pyright: ignore[reportCallIssue] - app_bearer_token comes from the env
     configure_logging()
     apply_langsmith_tracing(settings.langsmith_tracing)

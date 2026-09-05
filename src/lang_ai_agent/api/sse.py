@@ -98,6 +98,28 @@ type SSEEvent = Annotated[
 """Tagged union of every SSE event type, discriminated on `type`."""
 
 
+def content_text(content: str | list[str | dict[str, Any]]) -> str:
+    """The plain text of a message or chunk's `content`.
+
+    LangChain content is either a `str` or a list of content blocks — and
+    Anthropic models use the list form (`[{"type": "text", "text": ...}]`),
+    so anything that only handles `str` silently drops every real-model
+    token. (The first real-model smoke streamed zero `token` events for
+    exactly this reason; ScriptedChatModel's `str` content had hidden it.)
+    Only `text` blocks count; tool-use and other block types contribute
+    nothing.
+    """
+    if isinstance(content, str):
+        return content
+    parts: list[str] = []
+    for block in content:
+        if isinstance(block, str):
+            parts.append(block)
+        elif block.get("type") == "text":
+            parts.append(str(block.get("text", "")))
+    return "".join(parts)
+
+
 def _first_interrupt(
     state_interrupts: tuple[Interrupt, ...],
 ) -> Interrupt | None:
@@ -127,9 +149,9 @@ async def stream_sse_events(
             match event["event"]:
                 case "on_chat_model_stream":
                     chunk = event["data"].get("chunk")
-                    content = chunk.content if chunk is not None else None
-                    if isinstance(content, str) and content:
-                        yield TokenEvent(content=content)
+                    text = content_text(chunk.content) if chunk is not None else ""
+                    if text:
+                        yield TokenEvent(content=text)
                 case "on_tool_start":
                     run_id = str(event["run_id"])
                     tool_started_at[run_id] = time.monotonic()

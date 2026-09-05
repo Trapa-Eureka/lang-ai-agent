@@ -11,6 +11,7 @@ driven through httpx's ASGI transport, no server process).
 """
 
 import json
+import os
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -219,6 +220,30 @@ async def test_create_default_app_wires_settings_and_a_sqlite_checkpointer(
     assert created.status_code == 200
     assert missing.status_code == 404
     assert db_path.exists()  # the lifespan really opened AsyncSqliteSaver there
+
+
+async def test_create_default_app_exports_dotenv_to_the_process_environment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Provider clients read their API key from os.environ, and
+    pydantic-settings never exports .env there — so a .env-only
+    ANTHROPIC_API_KEY silently never reached the model. Found by the first
+    real-model smoke; this pins the fix (load_dotenv at startup).
+    """
+    monkeypatch.chdir(tmp_path)
+    for var in ("ANTHROPIC_API_KEY", "APP_BEARER_TOKEN", "CHECKPOINT_DB_PATH"):
+        monkeypatch.delenv(var, raising=False)
+    (tmp_path / ".env").write_text(
+        "APP_BEARER_TOKEN=from-dotenv\nANTHROPIC_API_KEY=sk-test-not-a-real-key\n"
+        "CHECKPOINT_DB_PATH=cp.db\n"
+    )
+
+    app = create_default_app()
+
+    assert os.environ["ANTHROPIC_API_KEY"] == "sk-test-not-a-real-key"  # reached the process env
+    async with _client(app) as client:
+        created = await client.post("/threads", headers={"Authorization": "Bearer from-dotenv"})
+    assert created.status_code == 200
 
 
 async def test_create_default_app_loads_mcp_tools_when_a_path_is_configured(

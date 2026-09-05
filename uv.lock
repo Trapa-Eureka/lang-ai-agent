@@ -771,6 +771,7 @@ dependencies = [
     { name = "langgraph-checkpoint-sqlite" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
+    { name = "python-dotenv" },
     { name = "sse-starlette" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -797,6 +798,7 @@ requires-dist = [
     { name = "langgraph-checkpoint-sqlite", specifier = ">=3.1.1" },
     { name = "pydantic", specifier = ">=2" },
     { name = "pydantic-settings", specifier = ">=2.15.0" },
+    { name = "python-dotenv", specifier = ">=1.2.3" },
     { name = "sse-starlette", specifier = ">=3.4.10" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.4" },
 ]
